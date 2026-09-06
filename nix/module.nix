@@ -74,6 +74,19 @@ let
           be silent.
         '';
       };
+      home = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "https://example.org";
+        description = ''
+          Where this space came from — a landing page, or simply the other
+          space. It appears in the header, labelled with its host name.
+
+          A space is one address among several, and the way back belongs ON
+          the page: the browser's back button is memory rather than
+          navigation, and it is empty for anyone who arrived by bookmark.
+        '';
+      };
       titleKey = lib.mkOption {
         type = lib.types.str;
         default = "title";
@@ -117,7 +130,9 @@ let
         reply
         ;
     }) space.category;
-  } // lib.optionalAttrs (space.articles != null) { articles = toString space.articles; };
+  }
+  // lib.optionalAttrs (space.articles != null) { articles = toString space.articles; }
+  // lib.optionalAttrs (space.home != null) { home = space.home; };
 
   spacesFile = (pkgs.formats.toml { }).generate "treff-spaces.toml" {
     space = map toToml cfg.spaces;

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.3 — 2026-09-06
+
+- **`home` per space**: the way back to wherever people came from, shown in
+  the header and labelled with its host name rather than an arrow. A space is
+  one address among several, and the back button is memory, not navigation —
+  it is empty for anyone who arrived by bookmark.
+- **The stylesheet carries an `ETag` and `Cache-Control: no-cache`.** Without
+  a validator a browser may reuse it for as long as it likes, so a redesign
+  that is deployed, running and correctly served can still be invisible to the
+  person looking at the page — everything measurable says yes and the screen
+  says no. `no-cache` means "keep it, but ask first": the usual answer is a
+  304 and no bytes.
+
 ## 0.2.2 — 2026-09-06
 
 Looks. The surface says what the software is: something you run yourself, on a

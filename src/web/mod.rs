@@ -836,9 +836,46 @@ async fn serve_attachment(
     }
 }
 
-async fn stylesheet() -> Response {
+/// A validator for the stylesheet, derived from its own bytes.
+///
+/// Not a security property, so the hash need not be a cryptographic one — it
+/// only has to CHANGE when the file changes, which `DefaultHasher` does even
+/// though its output is not stable across Rust versions. An unstable hash is
+/// harmless here: a different value means one extra download.
+static STYLE_ETAG: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    crate::web::views::STYLESHEET.hash(&mut hasher);
+    format!("\"{:016x}\"", hasher.finish())
+});
+
+/// `no-cache` means "keep it, but ask before using it" — not "do not keep it".
+///
+/// WITHOUT A VALIDATOR A REDESIGN CAN BE INVISIBLE. Until 2026-09-06 this
+/// route sent neither `ETag` nor `Cache-Control`, which leaves a browser free
+/// to reuse the file for as long as it likes. Everything measurable would say
+/// the new stylesheet is deployed, running and correctly served, and the
+/// person looking at the page would still see the old one — the worst kind of
+/// "fixed". With the validator the cost of being current is one conditional
+/// request that answers 304.
+async fn stylesheet(headers: axum::http::HeaderMap) -> Response {
+    let known = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == STYLE_ETAG.as_str());
+    if known {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [(header::ETAG, STYLE_ETAG.as_str())],
+        )
+            .into_response();
+    }
     (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+            (header::ETAG, STYLE_ETAG.as_str()),
+        ],
         crate::web::views::STYLESHEET,
     )
         .into_response()

@@ -73,6 +73,7 @@ mod tests {
             articles: None,
             attachment_max_bytes: 8 * 1024 * 1024,
             title_key: "title".into(),
+            home: None,
         }
     }
 

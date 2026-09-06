@@ -79,6 +79,14 @@ pub struct Space {
     /// saying the same thing.
     #[serde(default = "default_title_key")]
     pub title_key: String,
+    /// Where this space came from — a landing page, the other spaces, whatever
+    /// the operator wants people to be able to get back to.
+    ///
+    /// A space is one address among several, and the way back has to be ON the
+    /// page: the browser's back button is memory, not navigation, and it is
+    /// empty for anyone who arrived by bookmark.
+    #[serde(default)]
+    pub home: Option<String>,
 }
 
 fn default_title_key() -> String {

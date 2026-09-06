@@ -20,7 +20,7 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.2.2** — everything below works and is covered by tests. It is in
+Early. **v0.2.3** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06; nobody but its author has posted in it
 yet. Search and notifications are the next stage.
 
@@ -36,6 +36,7 @@ host     = "blog.example.org"
 title    = "Notes"
 view     = "timeline"
 read     = ["Household", "Friends"]
+home     = "https://example.org"        # optional, the way back, shown in the header
 articles = "/etc/treff/articles"
 title_key = "title"                     # optional, front matter key of the title
 attachment_max_bytes = 8388608          # optional, this is the default

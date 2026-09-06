@@ -43,6 +43,13 @@ pub fn layout(space: &Space, who: &Identity, lang: Lang, title: &str, body: Mark
                             span class="cursor" {}
                         }
                         nav {
+                            @if let Some(home) = &space.home {
+                                // Beschriftet mit dem Ort, nicht mit einem
+                                // Pfeil: Wer hier landet, kommt oft aus einem
+                                // Lesezeichen und weiss nicht, wohin „zurueck"
+                                // fuehrt. Das `../` davor setzt das Stylesheet.
+                                a class="up" href=(home) { (host_of(home)) }
+                            }
                             span class="who" { (who.name) }
                             a href="/auth/logout" { (lang.t("sign_out")) }
                         }
@@ -56,6 +63,20 @@ pub fn layout(space: &Space, who: &Identity, lang: Lang, title: &str, body: Mark
             }
         }
     }
+}
+
+/// The host part of a URL, for labelling a link with the place it leads to.
+///
+/// Deliberately not a URL parser: the value comes from the configuration file
+/// of whoever runs the instance, it is only ever printed, and Maud escapes it
+/// on the way out. Anything unexpected shows up as itself rather than as a
+/// wrong answer.
+fn host_of(url: &str) -> &str {
+    url.split_once("://")
+        .map_or(url, |(_, rest)| rest)
+        .split('/')
+        .next()
+        .unwrap_or(url)
 }
 
 /// The front page of a space with more than one category: what there is, and

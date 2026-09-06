@@ -31,6 +31,7 @@ host  = "forum.example.org"
 title = "Forum"
 view  = "topics"
 read  = ["Household", "Friends"]
+home  = "https://example.org"
 
   [[space.category]]
   slug  = "general"
@@ -122,4 +123,12 @@ pub async fn signed_in(
         .next()
         .expect("name=value")
         .to_string()
+}
+
+/// The body of a response as a string. Every test file wrote this itself.
+pub async fn body_of(response: axum::response::Response) -> String {
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    String::from_utf8(bytes.to_vec()).expect("utf-8")
 }

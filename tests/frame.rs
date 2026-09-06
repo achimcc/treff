@@ -153,3 +153,93 @@ async fn a_forged_session_cookie_does_not_sign_anyone_in() {
     let response = app.oneshot(request).await.expect("response");
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
 }
+
+/// The stylesheet must be REVALIDATED, not remembered.
+///
+/// It carried no `ETag` and no `Cache-Control` until 2026-09-06, which leaves
+/// a browser free to heuristically cache it — so a redesign that is deployed,
+/// running and served correctly can still be invisible to the person looking
+/// at it. That is the worst kind of "fixed": every measurement says yes and
+/// the screen says no.
+#[tokio::test]
+async fn the_stylesheet_is_revalidated_rather_than_remembered() {
+    let (_dir, app) = common::setup().await;
+
+    let first = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/assets/style.css")
+                .header("host", "forum.example.org")
+                .body(axum::body::Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(first.status(), axum::http::StatusCode::OK);
+    let etag = first
+        .headers()
+        .get(axum::http::header::ETAG)
+        .expect("an ETag, or the browser has nothing to ask about")
+        .to_str()
+        .expect("ascii")
+        .to_string();
+    assert_eq!(
+        first
+            .headers()
+            .get(axum::http::header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok()),
+        Some("no-cache"),
+        "no-cache means 'keep it, but ask first' — not 'do not keep it'"
+    );
+
+    // And the second request, with that ETag, costs a header and no bytes.
+    let second = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/assets/style.css")
+                .header("host", "forum.example.org")
+                .header("if-none-match", &etag)
+                .body(axum::body::Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(second.status(), axum::http::StatusCode::NOT_MODIFIED);
+}
+
+/// A space is one address among several, and the way back to the others has to
+/// be ON the page. Without it a forum reached from a landing page is a
+/// one-way street: the browser's back button is not navigation, it is memory.
+#[tokio::test]
+async fn a_configured_home_is_linked_and_an_unconfigured_one_is_not() {
+    let (dir, db, app) = common::setup_with_db().await;
+    let cookie = common::signed_in(&db, dir.path(), "someone", &["Household"]).await;
+
+    let page = common::body_of(
+        app.oneshot(
+            Request::builder()
+                .uri("/")
+                .header("host", "forum.example.org")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response"),
+    )
+    .await;
+
+    // `forum` carries `home` in the test configuration, `blog` does not — so
+    // one assertion cannot pass by accident while the other fails.
+    assert!(
+        page.contains("https://example.org"),
+        "the forum links home: {page}"
+    );
+    assert!(
+        page.contains("example.org</a>"),
+        "and says where home is, rather than showing a bare arrow: {page}"
+    );
+}

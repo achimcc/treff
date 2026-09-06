@@ -149,6 +149,13 @@ header nav {
     font-size: 12.5px;
 }
 
+/* `../` — der Weg nach oben, in der Schreibweise, die zum Rest der Seite
+   passt. Es steht im Stylesheet und nicht in der Vorlage: Der Ortsname
+   daneben ist Konfiguration, die zwei Punkte sind Typografie. */
+.up::before { content: "../"; color: var(--murmur); }
+header nav .up { color: var(--quiet); text-decoration-color: hsl(150 30% 35%); }
+header nav .up:hover { color: var(--on); }
+
 header nav .who { color: var(--quiet); }
 header nav .who::before { content: "@"; color: var(--murmur); }
 
