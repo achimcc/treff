@@ -25,7 +25,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 9** — reading: timeline, topic list, topic page |
 | Done | **Task 9b** — the category overview |
 | Done | **Task 9c** — articles mirrored from a directory |
-| Next | **Task 10** — writing: open a topic, reply |
+| Done | **Task 10** — writing: open a topic, reply |
+| Next | **Task 11** — editing and deleting, only your own |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -367,7 +368,7 @@ order, so the first test wrongly assumed which file became topic 1; and
 `hidden` was written but not yet read, so a withdrawn article stayed on the
 page while the counter said it was gone.
 
-## Task 10 · Writing: open a topic, reply
+## Task 10 · Writing: open a topic, reply ✅
 
 **Files:** change `src/web/mod.rs`, `src/web/views.rs`
 **Produces:** routes `POST /c/:category/new`, `POST /t/:id/reply`.
@@ -379,6 +380,26 @@ replying follows `reply`, not `post`; an empty title or body is **400**; a
 title over 200 characters is **400**; a body over 64 KiB is **400**; the form
 page shows **no submit button** to someone who may not use it (display follows
 the right).
+
+**Done, with three notes:**
+
+- The answer to a successful POST is **303**, not the 302 the plan named: 303
+  is the code that turns a POST into a GET, so a reload does not post again.
+- The limits check what they claim to: **characters** for the title, **bytes**
+  for the body, with a unit test that pins both (an emoji is one character and
+  four bytes). Whitespace counts as empty, so a title of three spaces is
+  refused.
+- `checked_title` / `checked_body` return a **reason**, not a response. clippy
+  found the first version — a `Result<_, Response>` carries a very large error
+  variant — and being made to fix it left the checks free of HTTP, which is
+  where they belonged anyway.
+
+**Also closed here: a promise from task 8 that was never checked.** The plan
+asked for a session cookie that is `HttpOnly`, `Secure`, `SameSite=Lax`. It
+was implemented and never asserted; `tests/frame.rs` now reads the real
+`Set-Cookie` header. `SameSite=Lax` is what stops a form on another site from
+posting here in someone else's name, so it is the CSRF defence this design
+rests on — together with `form-action 'self'` in the CSP.
 
 ## Task 11 · Editing and deleting — only your own
 

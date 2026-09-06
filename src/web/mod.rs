@@ -311,7 +311,7 @@ async fn render_space(app: &AppState, space: &Space, who: &Identity, slug: &str)
         rows.push((topic, first));
     }
 
-    crate::web::views::space_page(space, who, &rows).into_response()
+    crate::web::views::space_page(space, who, space.category(slug), &rows).into_response()
 }
 
 async fn topic_page(
@@ -328,9 +328,124 @@ async fn topic_page(
         // simply not there — no 403 that would confirm it exists.
         Ok(None) => not_found(),
         Ok(Some((topic, posts))) => {
-            crate::web::views::topic_page(&space, &who, &topic, &posts).into_response()
+            let category = space.category(&topic.category);
+            crate::web::views::topic_page(&space, &who, category, &topic, &posts).into_response()
         }
         Err(e) => server_error("cannot load a topic", &e),
+    }
+}
+
+/// The limits on what may be written. They are checked here, in the handler,
+/// because they are about a request — the storage layer stores what it is
+/// given.
+const MAX_TITLE_CHARS: usize = 200;
+const MAX_BODY_BYTES: usize = 64 * 1024;
+
+#[derive(serde::Deserialize)]
+pub struct NewTopic {
+    title: String,
+    body: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct NewReply {
+    body: String,
+}
+
+fn bad_request(why: &'static str) -> Response {
+    (StatusCode::BAD_REQUEST, why).into_response()
+}
+
+/// Trimmed and within its limits, or the reason why not. These two know
+/// nothing about HTTP — the handler turns a reason into a status — which is
+/// what lets them be tested as plain functions.
+///
+/// Whitespace counts as empty: a title of three spaces is not a title.
+pub fn checked_title(raw: &str) -> Result<String, &'static str> {
+    let t = raw.trim();
+    if t.is_empty() {
+        return Err("a topic needs a title");
+    }
+    if t.chars().count() > MAX_TITLE_CHARS {
+        return Err("that title is too long");
+    }
+    Ok(t.to_string())
+}
+
+pub fn checked_body(raw: &str) -> Result<String, &'static str> {
+    let b = raw.trim();
+    if b.is_empty() {
+        return Err("a post needs a text");
+    }
+    if b.len() > MAX_BODY_BYTES {
+        return Err("that text is too long");
+    }
+    Ok(b.to_string())
+}
+
+async fn open_topic(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(slug): axum::extract::Path<String>,
+    axum::extract::Form(form): axum::extract::Form<NewTopic>,
+) -> Response {
+    let Some(category) = space.category(&slug) else {
+        return not_found();
+    };
+    // Reading first: someone who cannot see the space has no business
+    // discovering which categories it has by posting into them.
+    if !crate::authz::may_read(&who, &space) || !crate::authz::may_post(&who, category) {
+        return forbidden();
+    }
+
+    let title = match checked_title(&form.title) {
+        Ok(t) => t,
+        Err(why) => return bad_request(why),
+    };
+    let body = match checked_body(&form.body) {
+        Ok(b) => b,
+        Err(why) => return bad_request(why),
+    };
+
+    match crate::db::topics::create_topic(&app.db, &space.host, &slug, &title, &body, &who).await {
+        Ok(id) => Redirect::to(&format!("/t/{id}")).into_response(),
+        Err(e) => server_error("cannot open a topic", &e),
+    }
+}
+
+async fn reply(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    axum::extract::Form(form): axum::extract::Form<NewReply>,
+) -> Response {
+    // Loading is scoped by space, so a topic from the other address is not
+    // found rather than refused — the same answer a reader gets.
+    let topic = match crate::db::topics::load_topic(&app.db, &space.host, id).await {
+        Ok(Some((topic, _))) => topic,
+        Ok(None) => return not_found(),
+        Err(e) => return server_error("cannot load a topic", &e),
+    };
+
+    let Some(category) = space.category(&topic.category) else {
+        // The topic sits in a category the configuration no longer has. It can
+        // still be read; nothing new goes into it.
+        return not_found();
+    };
+    if !crate::authz::may_read(&who, &space) || !crate::authz::may_reply(&who, category) {
+        return forbidden();
+    }
+
+    let body = match checked_body(&form.body) {
+        Ok(b) => b,
+        Err(why) => return bad_request(why),
+    };
+
+    match crate::db::topics::add_reply(&app.db, id, &body, &who).await {
+        Ok(_) => Redirect::to(&format!("/t/{id}")).into_response(),
+        Err(e) => server_error("cannot add a reply", &e),
     }
 }
 
@@ -353,6 +468,8 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(space_index))
         .route("/c/{slug}", get(space_category))
         .route("/t/{id}", get(topic_page))
+        .route("/c/{slug}/new", axum::routing::post(open_topic))
+        .route("/t/{id}/reply", axum::routing::post(reply))
         .route("/assets/style.css", get(stylesheet))
         .route("/auth/login", get(login))
         .layer(middleware::from_fn_with_state(
@@ -365,4 +482,32 @@ pub fn router(state: AppState) -> Router {
         .layer(fixed(header::REFERRER_POLICY, "no-referrer"))
         .layer(fixed(header::X_FRAME_OPTIONS, "DENY"))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_title_of_whitespace_is_no_title() {
+        assert!(checked_title("   \t \n ").is_err());
+        assert_eq!(checked_title("  Hello  ").as_deref(), Ok("Hello"));
+    }
+
+    #[test]
+    fn the_limits_count_what_they_say_they_count() {
+        // Characters for the title, bytes for the body. An emoji is one
+        // character and four bytes, and mixing the two up is how a limit
+        // becomes either useless or surprising.
+        let two_hundred: String = "\u{e4}".repeat(MAX_TITLE_CHARS);
+        assert!(
+            checked_title(&two_hundred).is_ok(),
+            "200 characters refused"
+        );
+        assert!(checked_title(&format!("{two_hundred}x")).is_err());
+
+        let body = "b".repeat(MAX_BODY_BYTES);
+        assert!(checked_body(&body).is_ok());
+        assert!(checked_body(&format!("{body}x")).is_err());
+    }
 }

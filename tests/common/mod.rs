@@ -8,17 +8,19 @@
 use treff::config::Config;
 
 pub const CONFIGURATION: &str = r#"
+# The blog as the design has it since 2026-09-06: articles come from files,
+# so nobody opens one in a browser, and everybody with an account comments.
 [[space]]
 host  = "blog.example.org"
 title = "Notes"
 view  = "timeline"
-read  = ["Household"]
+read  = ["Household", "Friends"]
 
   [[space.category]]
   slug  = "notes"
   title = "Notes"
-  post  = ["Writers"]
-  reply = ["Household"]
+  post  = []
+  reply = ["Household", "Friends"]
 
 [[space]]
 host  = "forum.example.org"

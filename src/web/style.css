@@ -89,6 +89,40 @@ h2 { font-size: 1.15rem; margin: 0 0 .25rem; }
     border-bottom: 1px solid var(--line);
 }
 
+.write {
+    display: grid;
+    gap: .75rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+}
+
+.write h2 { margin: 0; }
+.write label { display: grid; gap: .35rem; font-size: .9rem; color: var(--muted); }
+
+.write input, .write textarea {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: .5rem;
+    width: 100%;
+}
+
+.write textarea { resize: vertical; }
+
+.write button {
+    justify-self: start;
+    font: inherit;
+    padding: .5rem 1.25rem;
+    border: 1px solid var(--link);
+    border-radius: 4px;
+    background: var(--link);
+    color: var(--paper);
+    cursor: pointer;
+}
+
 .body > :first-child { margin-top: 0; }
 .body > :last-child { margin-bottom: 0; }
 

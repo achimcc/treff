@@ -78,7 +78,15 @@ pub fn day(unix_seconds: i64) -> String {
 /// A space, rendered the way it is configured: a timeline shows the posts
 /// themselves, a topic list shows titles. Same data, one line of configuration
 /// apart.
-pub fn space_page(space: &Space, who: &Identity, topics: &[(Topic, Option<Post>)]) -> Markup {
+pub fn space_page(
+    space: &Space,
+    who: &Identity,
+    category: Option<&Category>,
+    topics: &[(Topic, Option<Post>)],
+) -> Markup {
+    // Display follows the right: someone who may not open a topic is not shown
+    // a button that leads to a refusal.
+    let may_post = category.is_some_and(|c| crate::authz::may_post(who, c));
     let body = html! {
         @if topics.is_empty() {
             p class="empty" { "Nothing here yet." }
@@ -106,11 +114,34 @@ pub fn space_page(space: &Space, who: &Identity, topics: &[(Topic, Option<Post>)
                 }
             }
         }
+        @if let Some(category) = category {
+            @if may_post {
+                form class="write" method="post" action={ "/c/" (category.slug) "/new" } {
+                    h2 { "New topic" }
+                    label {
+                        "Title"
+                        input type="text" name="title" maxlength="200" required;
+                    }
+                    label {
+                        "Text"
+                        textarea name="body" rows="6" required {}
+                    }
+                    button type="submit" { "Open topic" }
+                }
+            }
+        }
     };
     layout(space, who, &space.title, body)
 }
 
-pub fn topic_page(space: &Space, who: &Identity, topic: &Topic, posts: &[Post]) -> Markup {
+pub fn topic_page(
+    space: &Space,
+    who: &Identity,
+    category: Option<&Category>,
+    topic: &Topic,
+    posts: &[Post],
+) -> Markup {
+    let may_reply = category.is_some_and(|c| crate::authz::may_reply(who, c));
     let body = html! {
         h1 { (topic.title) }
         @for post in posts {
@@ -120,6 +151,15 @@ pub fn topic_page(space: &Space, who: &Identity, topic: &Topic, posts: &[Post]) 
                     @if post.edited { " (edited)" }
                 }
                 div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
+            }
+        }
+        @if may_reply {
+            form class="write" method="post" action={ "/t/" (topic.id) "/reply" } {
+                label {
+                    "Reply"
+                    textarea name="body" rows="5" required {}
+                }
+                button type="submit" { "Post reply" }
             }
         }
     };

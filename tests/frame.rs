@@ -111,6 +111,35 @@ async fn the_login_path_is_reachable_without_a_session() {
 }
 
 #[tokio::test]
+async fn the_session_cookie_carries_its_defences() {
+    // Task 8 promised this and never checked it. HttpOnly keeps a script that
+    // should not exist from reading it anyway; Secure keeps it off plain HTTP;
+    // SameSite=Lax is what stops a form on another site from posting here in
+    // someone else's name, which is the CSRF defence this design relies on.
+    let (dir, db, _app) = common::setup_with_db().await;
+    let cookie = common::signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    assert!(!cookie.is_empty());
+
+    let key = treff::web::load_or_create_cookie_key(dir.path()).expect("key");
+    let jar = axum_extra::extract::cookie::PrivateCookieJar::new(key)
+        .add(treff::web::session_cookie("whatever".into()));
+    use axum::response::IntoResponse;
+    let header = jar
+        .into_response()
+        .headers()
+        .get(axum::http::header::SET_COOKIE)
+        .expect("Set-Cookie")
+        .to_str()
+        .expect("ascii")
+        .to_string();
+
+    assert!(header.contains("HttpOnly"), "{header}");
+    assert!(header.contains("Secure"), "{header}");
+    assert!(header.contains("SameSite=Lax"), "{header}");
+    assert!(header.contains("Path=/"), "{header}");
+}
+
+#[tokio::test]
 async fn a_forged_session_cookie_does_not_sign_anyone_in() {
     // The cookie is private (signed and encrypted). A value made up by the
     // client must not even be read, let alone looked up.
