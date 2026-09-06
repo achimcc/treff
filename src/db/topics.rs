@@ -90,6 +90,15 @@ pub async fn create_topic(
     .execute(&mut *tx)
     .await?;
 
+    // WRITING SUBSCRIBES YOU, and it happens in THIS transaction.
+    //
+    // Opening a topic or replying to one is the clearest statement that you
+    // want to know what happens next; asking afterwards is a dialogue nobody
+    // wants. In the same transaction because the alternative is a post that
+    // exists while its subscription does not — after a crash, forever, and
+    // silently.
+    crate::db::subscriptions::follow_in(&mut tx, &author.subject, id).await?;
+
     tx.commit().await?;
     Ok(id)
 }
@@ -124,6 +133,9 @@ pub async fn add_reply(
         .bind(topic_id)
         .execute(&mut *tx)
         .await?;
+
+    // Replying subscribes you too — same transaction, same reason.
+    crate::db::subscriptions::follow_in(&mut tx, &author.subject, topic_id).await?;
 
     tx.commit().await?;
     Ok(id)

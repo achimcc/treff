@@ -2,6 +2,7 @@
 //! a pool.
 
 pub mod attachments;
+pub mod subscriptions;
 pub mod topics;
 
 use sqlx::SqlitePool;

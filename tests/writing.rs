@@ -306,3 +306,81 @@ async fn a_post_without_a_session_writes_nothing() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(count_topics(&db).await, 0);
 }
+
+/// The button on the topic page, end to end: it changes the subscription and
+/// it is a `POST`.
+#[tokio::test]
+async fn following_and_unfollowing_go_through_the_page() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = treff::authz::Identity {
+        subject: "ada".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let topic = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A topic",
+        "Body",
+        &ada,
+    )
+    .await
+    .expect("topic");
+
+    // Somebody who did not write in it does not follow it.
+    let cookie = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    assert!(
+        !treff::db::subscriptions::is_following(&db, "ben", topic)
+            .await
+            .expect("check")
+    );
+
+    let post = |uri: &str| {
+        Request::builder()
+            .method("POST")
+            .uri(uri.to_string())
+            .header("host", "forum.example.org")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::empty())
+            .expect("request")
+    };
+
+    let r = app
+        .clone()
+        .oneshot(post(&format!("/t/{topic}/follow")))
+        .await
+        .expect("r");
+    assert_eq!(r.status(), StatusCode::SEE_OTHER);
+    assert!(
+        treff::db::subscriptions::is_following(&db, "ben", topic)
+            .await
+            .expect("check")
+    );
+
+    let r = app
+        .clone()
+        .oneshot(post(&format!("/t/{topic}/unfollow")))
+        .await
+        .expect("r");
+    assert_eq!(r.status(), StatusCode::SEE_OTHER);
+    assert!(
+        !treff::db::subscriptions::is_following(&db, "ben", topic)
+            .await
+            .expect("check")
+    );
+
+    // And a topic at the other address is not there — not refused, which would
+    // confirm that it exists.
+    let elsewhere = Request::builder()
+        .method("POST")
+        .uri(format!("/t/{topic}/follow"))
+        .header("host", "blog.example.org")
+        .header("cookie", &cookie)
+        .body(Body::empty())
+        .expect("request");
+    let r = app.oneshot(elsewhere).await.expect("r");
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
+}

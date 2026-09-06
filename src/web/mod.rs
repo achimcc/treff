@@ -370,6 +370,59 @@ async fn logout(State(app): State<AppState>, jar: PrivateCookieJar) -> Response 
     (jar.remove(spent), Redirect::to("/")).into_response()
 }
 
+/// Follow and unfollow. `POST`, because they change something — a `GET` that
+/// changes state is one a link preview can trigger, and a mail client that
+/// fetches links would unsubscribe people who never clicked.
+///
+/// The right is checked, not assumed: a subscription to a topic you may not
+/// read would be a mail about a room you cannot enter.
+async fn follow(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    change_subscription(&app, &space, &who, id, true).await
+}
+
+async fn unfollow(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    change_subscription(&app, &space, &who, id, false).await
+}
+
+async fn change_subscription(
+    app: &AppState,
+    space: &Space,
+    who: &Identity,
+    id: i64,
+    on: bool,
+) -> Response {
+    if !crate::authz::may_read(who, space) {
+        return forbidden();
+    }
+    // Loaded through the space, so a topic at the other address is not there
+    // rather than refused — the same rule as reading it.
+    match crate::db::topics::load_topic(&app.db, &space.host, id).await {
+        Ok(None) => return not_found(),
+        Ok(Some(_)) => {}
+        Err(e) => return server_error("cannot load a topic", &e),
+    }
+
+    let done = if on {
+        crate::db::subscriptions::follow(&app.db, &who.subject, id).await
+    } else {
+        crate::db::subscriptions::unfollow(&app.db, &who.subject, id).await
+    };
+    match done {
+        Ok(()) => Redirect::to(&format!("/t/{id}")).into_response(),
+        Err(e) => server_error("cannot change a subscription", &e),
+    }
+}
+
 fn tracing_error(what: &str, e: &anyhow::Error) {
     eprintln!("treff: {what}: {e}");
 }
@@ -512,8 +565,14 @@ async fn topic_page(
         // simply not there — no 403 that would confirm it exists.
         Ok(None) => not_found(),
         Ok(Some((topic, posts))) => {
+            let following =
+                match crate::db::subscriptions::is_following(&app.db, &who.subject, topic.id).await
+                {
+                    Ok(f) => f,
+                    Err(e) => return server_error("cannot read a subscription", &e),
+                };
             let category = space.category(&topic.category);
-            crate::web::views::topic_page(&space, &who, lang, category, &topic, &posts)
+            crate::web::views::topic_page(&space, &who, lang, category, &topic, &posts, following)
                 .into_response()
         }
         Err(e) => server_error("cannot load a topic", &e),
@@ -894,6 +953,8 @@ pub fn router(state: AppState) -> Router {
         .route("/t/{id}", get(topic_page))
         .route("/c/{slug}/new", axum::routing::post(open_topic))
         .route("/t/{id}/reply", axum::routing::post(reply))
+        .route("/t/{id}/follow", axum::routing::post(follow))
+        .route("/t/{id}/unfollow", axum::routing::post(unfollow))
         .route("/p/{id}/edit", axum::routing::post(edit_post))
         .route("/p/{id}/delete", axum::routing::post(delete_post))
         // Two limits, and both are needed. This one protects memory and is

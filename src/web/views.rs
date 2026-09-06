@@ -209,10 +209,23 @@ pub fn topic_page(
     category: Option<&Category>,
     topic: &Topic,
     posts: &[Post],
+    following: bool,
 ) -> Markup {
     let may_reply = category.is_some_and(|c| crate::authz::may_reply(who, c));
     let body = html! {
         h1 { (topic.title) }
+        // A form and not a link: following changes something, and a GET that
+        // changes state is one a link preview or a mail client can trigger
+        // without anybody clicking.
+        form class="follow" method="post"
+             action={ "/t/" (topic.id) (if following { "/unfollow" } else { "/follow" }) } {
+            button type="submit" {
+                (lang.t(if following { "unfollow" } else { "follow" }))
+            }
+            @if following {
+                span class="note" { (lang.t("following_note")) }
+            }
+        }
         @for post in posts {
             article class="post" {
                 p class="byline" {

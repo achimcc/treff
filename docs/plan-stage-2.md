@@ -20,8 +20,8 @@ are in `../AGENTS.md`.
 | | |
 |---|---|
 | Done | **Task 1** — an address from the token |
-| Next | **Task 2** — subscriptions: who hears about what |
-| | **Task 3** — the outbox, and a sender that survives a restart |
+| Done | **Task 2** — subscriptions: who hears about what |
+| Next | **Task 3** — the outbox, and a sender that survives a restart |
 | | **Task 4** — one-click unsubscribe, without signing in |
 | | **Task 5** — a generic webhook as a second exit |
 | | **Task 6** — full-text search over FTS5 |
@@ -58,15 +58,15 @@ signs in twice with a changed address and gets the same account.
 
 **Files:** migrations, `src/db/subscriptions.rs`, `src/web/`
 
-- [ ] A `subscriptions` table: subject, topic, how (mail, webhook, both), when
+- [x] A `subscriptions` table: subject, topic, how (mail, webhook, both), when
       it was created. Foreign key to the topic, deleted with it.
-- [ ] **Writing subscribes you.** Opening a topic or replying to one is the
+- [x] **Writing subscribes you.** Opening a topic or replying to one is the
       clearest statement that you want to know what happens next, and asking
       afterwards would be a dialogue nobody wants. It can be undone.
-- [ ] A control on the topic page: following / not following. Display follows
+- [x] A control on the topic page: following / not following. Display follows
       the right, as everywhere else — someone who may not read the category is
       not offered a subscription to it.
-- [ ] **Never notify the author of the post that triggered it.** Not a nicety:
+- [x] **Never notify the author of the post that triggered it.** Not a nicety:
       a forum that mails you your own words teaches people to filter it away.
 
 **Done when:** replying creates a subscription, the button removes it, a
