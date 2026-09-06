@@ -181,10 +181,6 @@ in
           the secret out of the filesystem the service can see.
         '';
       };
-      redirectUri = lib.mkOption {
-        type = lib.types.str;
-        description = "Where the provider sends people back to, e.g. https://forum.example.org/auth/callback.";
-      };
       groupClaim = lib.mkOption {
         type = lib.types.str;
         default = "groups";
@@ -230,7 +226,6 @@ in
         TREFF_OIDC_CLIENT_ID = cfg.oidc.clientId;
         # The PATH to the secret. The secret itself never appears here.
         TREFF_OIDC_CLIENT_SECRET_FILE = toString cfg.oidc.clientSecretFile;
-        TREFF_OIDC_REDIRECT_URI = cfg.oidc.redirectUri;
         TREFF_OIDC_GROUP_CLAIM = cfg.oidc.groupClaim;
       };
 

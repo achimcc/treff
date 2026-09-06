@@ -45,7 +45,6 @@ pkgs.testers.runNixOSTest {
           # a systemd specifier, resolved at start, with the secret never in a
           # place the service could read by accident.
           clientSecretFile = "%d/oidc";
-          redirectUri = "https://forum.example.org/auth/callback";
         };
         spaces = [
           {

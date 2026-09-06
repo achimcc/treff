@@ -26,13 +26,32 @@ pub const CSP: &str = "default-src 'self'; img-src 'self'; style-src 'self'; \
 
 pub const SESSION_COOKIE: &str = "treff_session";
 
+/// Where the provider must send people back to for a given space.
+///
+/// DERIVED FROM THE HOST, NOT CONFIGURED. One process serves several
+/// addresses, and a cookie belongs to exactly one of them — the short-lived
+/// cookie carrying `state`, `nonce` and the PKCE verifier is set on the host
+/// the sign-in began at, and is never sent to another. A single configured
+/// redirect URI therefore worked for exactly one space and left the others in
+/// a loop; on 2026-09-06, on the first host to run this, it left them in a
+/// **404**, because the route was not mounted at all.
+///
+/// So each space comes back to itself, and the operator registers one redirect
+/// URI per space with the provider. HTTPS is not a choice here: the session
+/// cookie is `Secure`, so the site is served over TLS or not at all.
+pub fn redirect_uri_for(host: &str) -> String {
+    format!("https://{host}/auth/callback")
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
     pub db: Db,
     pub oidc: Arc<OidcSettings>,
-    /// Where the provider sends people back to. Needed to build the client,
-    /// and only known to whoever runs the instance.
+    /// The redirect URI the OIDC client is built with — the first space's.
+    /// Every request overrides it with the one belonging to ITS space
+    /// (`redirect_uri_for`), so this value never reaches a provider on its
+    /// own; the client type simply requires one.
     pub redirect_uri: Arc<str>,
     /// The discovered provider, found on first use rather than at startup.
     ///
@@ -79,18 +98,22 @@ pub fn load_or_create_cookie_key(dir: &Path) -> anyhow::Result<Key> {
 }
 
 impl AppState {
-    pub fn new(
-        config: Config,
-        db: Db,
-        oidc: OidcSettings,
-        redirect_uri: &str,
-        dir: &Path,
-    ) -> anyhow::Result<Self> {
+    pub fn new(config: Config, db: Db, oidc: OidcSettings, dir: &Path) -> anyhow::Result<Self> {
+        // NOT CONFIGURED, DERIVED. Until 0.2.0 the redirect URI was an
+        // environment variable — one value for a process that serves several
+        // addresses, which could only ever be right for one of them. The
+        // client needs *a* URI to be built with; every request replaces it
+        // with its own space's.
+        let redirect_uri = config
+            .spaces
+            .first()
+            .map(|s| redirect_uri_for(&s.host))
+            .ok_or_else(|| anyhow::anyhow!("no spaces are configured"))?;
         Ok(Self {
             config: Arc::new(config),
             db,
             oidc: Arc::new(oidc),
-            redirect_uri: Arc::from(redirect_uri),
+            redirect_uri: Arc::from(redirect_uri.as_str()),
             provider: Arc::new(tokio::sync::OnceCell::new()),
             data_dir: dir.to_path_buf(),
             cookie_key: load_or_create_cookie_key(dir)?,
@@ -186,7 +209,7 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
     next.run(Request::from_parts(parts, body)).await
 }
 
-async fn login(State(app): State<AppState>) -> Response {
+async fn login(State(app): State<AppState>, CurrentSpace(space): CurrentSpace) -> Response {
     let provider = match app.provider().await {
         Ok(p) => p,
         Err(e) => {
@@ -201,7 +224,7 @@ async fn login(State(app): State<AppState>) -> Response {
         }
     };
 
-    match provider.begin_login() {
+    match provider.begin_login(&redirect_uri_for(&space.host)) {
         Ok(start) => {
             let jar = PrivateCookieJar::new(app.cookie_key.clone()).add(pending_cookie(&start));
             (jar, Redirect::to(&start.url)).into_response()
@@ -231,6 +254,120 @@ fn pending_cookie(start: &crate::auth::oidc::LoginStart) -> Cookie<'static> {
     c.set_path("/auth");
     c.set_max_age(time::Duration::minutes(10));
     c
+}
+
+/// What the provider appends to the redirect URI.
+#[derive(serde::Deserialize)]
+struct CallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    /// The provider can answer with a refusal instead of a code. Saying so is
+    /// better than a blank page that looks like a bug in treff.
+    error: Option<String>,
+}
+
+/// The other half of `login`, and the half that was missing until 2026-09-06:
+/// implemented, unit-tested against a mock provider, and never mounted. The
+/// provider sent people back here and the router answered 404.
+async fn callback(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    jar: PrivateCookieJar,
+    axum::extract::Query(query): axum::extract::Query<CallbackQuery>,
+) -> Response {
+    if let Some(error) = query.error {
+        // The provider's own words are not repeated back into the page; they
+        // are its vocabulary, not ours, and they end up in a log people read.
+        eprintln!("treff: the provider refused a sign-in: {error}");
+        return (StatusCode::FORBIDDEN, "the provider refused the sign-in").into_response();
+    }
+
+    let (Some(code), Some(returned_state)) = (query.code, query.state) else {
+        return (StatusCode::BAD_REQUEST, "not a callback").into_response();
+    };
+
+    // No cookie, nothing to compare `state` against. That is a refusal and not
+    // a new sign-in: silently starting one here would make an unsolicited
+    // callback indistinguishable from a real one.
+    let Some(pending) = jar
+        .get("treff_pending")
+        .and_then(|c| parse_pending(c.value()))
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "this sign-in was not started here, or it took too long",
+        )
+            .into_response();
+    };
+
+    let provider = match app.provider().await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing_error("the identity provider could not be reached", &e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the identity provider cannot be reached right now",
+            )
+                .into_response();
+        }
+    };
+
+    let identity = match provider
+        .finish_login(
+            pending,
+            &code,
+            &returned_state,
+            &redirect_uri_for(&space.host),
+        )
+        .await
+    {
+        Ok(i) => i,
+        Err(e) => {
+            tracing_error("a sign-in could not be completed", &e);
+            return (StatusCode::FORBIDDEN, "the sign-in could not be completed").into_response();
+        }
+    };
+
+    let session = match Sessions::create(&app.db, &identity).await {
+        Ok(s) => s,
+        Err(e) => return server_error("cannot store the session", &e),
+    };
+
+    // The pending cookie is spent. Removing it needs the same path it was set
+    // with, or the browser keeps a second one alongside.
+    let mut spent = Cookie::new("treff_pending", "");
+    spent.set_path("/auth");
+    let jar = jar.remove(spent).add(session_cookie(session));
+    (jar, Redirect::to("/")).into_response()
+}
+
+fn parse_pending(value: &str) -> Option<crate::auth::oidc::PendingLogin> {
+    let mut parts = value.split('\n');
+    let state = parts.next()?.to_string();
+    let nonce = parts.next()?.to_string();
+    let pkce_verifier = parts.next()?.to_string();
+    if parts.next().is_some() || state.is_empty() || nonce.is_empty() || pkce_verifier.is_empty() {
+        return None;
+    }
+    Some(crate::auth::oidc::PendingLogin {
+        state,
+        nonce,
+        pkce_verifier,
+    })
+}
+
+/// Signing out ends the session IN THE DATABASE, not only in the browser.
+/// Dropping the cookie alone would leave a working session behind for anyone
+/// who kept a copy of it.
+async fn logout(State(app): State<AppState>, jar: PrivateCookieJar) -> Response {
+    if let Some(id) = jar.get(SESSION_COOKIE)
+        && let Err(e) = Sessions::destroy(&app.db, id.value()).await
+    {
+        return server_error("cannot end the session", &e);
+    }
+    let mut spent = Cookie::new(SESSION_COOKIE, "");
+    spent.set_path("/");
+    (jar.remove(spent), Redirect::to("/")).into_response()
 }
 
 fn tracing_error(what: &str, e: &anyhow::Error) {
@@ -733,6 +870,8 @@ pub fn router(state: AppState) -> Router {
         .route("/a/{id}", get(serve_attachment))
         .route("/assets/style.css", get(stylesheet))
         .route("/auth/login", get(login))
+        .route("/auth/callback", get(callback))
+        .route("/auth/logout", get(logout))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             require_session,

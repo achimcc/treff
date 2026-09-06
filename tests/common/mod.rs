@@ -7,6 +7,10 @@
 
 use treff::config::Config;
 
+/// The address the provider is told to send people back to. One place, so a
+/// test can ask "is this a route?" without spelling the path a second time.
+pub const REDIRECT_URI: &str = "https://forum.example.org/auth/callback";
+
 pub const CONFIGURATION: &str = r#"
 # The blog as the design has it since 2026-09-06: articles come from files,
 # so nobody opens one in a browser, and everybody with an account comments.
@@ -70,7 +74,6 @@ pub async fn setup_with_db() -> (tempfile::TempDir, treff::db::Db, axum::Router)
             client_secret: "test".into(),
             group_claim: "groups".into(),
         },
-        "https://example.org/auth/callback",
         dir.path(),
     )
     .expect("state");

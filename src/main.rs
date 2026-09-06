@@ -108,16 +108,13 @@ async fn serve() -> anyhow::Result<()> {
     mirror_articles(&config, &db).await?;
 
     let oidc = treff::auth::OidcSettings::from_env()?;
-    let redirect_uri = std::env::var("TREFF_OIDC_REDIRECT_URI").map_err(|_| {
-        anyhow::anyhow!("TREFF_OIDC_REDIRECT_URI is not set; the provider needs a way back")
-    })?;
 
     // The provider is discovered on first use, not here. Discovering at
     // startup turned a slow identity provider into a dead forum: after a power
     // cut the two come up in whatever order they come up in. Nothing is opened
     // by that — without a provider nobody signs in, and every page needs a
     // session.
-    let state = treff::web::AppState::new(config, db, oidc, &redirect_uri, &data_dir)?;
+    let state = treff::web::AppState::new(config, db, oidc, &data_dir)?;
     let app = treff::web::router(state);
 
     let listen = std::env::var("TREFF_LISTEN").unwrap_or_else(|_| "127.0.0.1:8080".to_string());

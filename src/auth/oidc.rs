@@ -94,7 +94,16 @@ impl Provider {
         })
     }
 
-    pub fn begin_login(&self) -> anyhow::Result<LoginStart> {
+    /// `redirect_uri` is passed in per request, not taken from the client.
+    ///
+    /// One process serves several hosts, and a cookie belongs to exactly one
+    /// of them: a sign-in begun on `blog.example.org` cannot be finished on
+    /// `forum.example.org`, because the short-lived cookie holding `state`,
+    /// `nonce` and the PKCE verifier is never sent there. Each space therefore
+    /// comes back to ITSELF, and the provider is configured with one redirect
+    /// URI per space.
+    pub fn begin_login(&self, redirect_uri: &str) -> anyhow::Result<LoginStart> {
+        let redirect = RedirectUrl::new(redirect_uri.to_string())?;
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
         let (url, csrf, nonce) = self
             .client
@@ -105,6 +114,7 @@ impl Provider {
             )
             .add_scope(Scope::new("profile".to_string()))
             .set_pkce_challenge(challenge)
+            .set_redirect_uri(std::borrow::Cow::Owned(redirect))
             .url();
 
         Ok(LoginStart {
@@ -127,15 +137,20 @@ impl Provider {
         pending: PendingLogin,
         code: &str,
         returned_state: &str,
+        redirect_uri: &str,
     ) -> anyhow::Result<Identity> {
         if !states_match(&pending.state, returned_state) {
             anyhow::bail!("the callback state does not match the one this session started with");
         }
 
+        // The same URI the authorization request carried; the provider checks
+        // that the two agree.
+        let redirect = RedirectUrl::new(redirect_uri.to_string())?;
         let tokens = self
             .client
             .exchange_code(AuthorizationCode::new(code.to_string()))?
             .set_pkce_verifier(PkceCodeVerifier::new(pending.pkce_verifier))
+            .set_redirect_uri(std::borrow::Cow::Owned(redirect))
             .request_async(&self.http)
             .await?;
 
@@ -165,6 +180,11 @@ impl Provider {
 
 #[cfg(test)]
 mod tests {
+    /// One address, used by discovery and by every request in these tests —
+    /// so a test that asserts it appears in the URL is asserting about the
+    /// value that was actually passed in.
+    const REDIRECT: &str = "https://forum.example.org/auth/callback";
+
     use super::*;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -201,9 +221,38 @@ mod tests {
             client_secret: "s3cret".into(),
             group_claim: "groups".into(),
         };
-        Provider::discover(&settings, "https://forum.example.org/auth/callback")
+        Provider::discover(&settings, REDIRECT)
             .await
             .expect("discovery")
+    }
+
+    /// EACH SPACE COMES BACK TO ITSELF.
+    ///
+    /// The client is built with one redirect URI; every request overrides it
+    /// with its own. Without that, a sign-in begun on the blog would be sent
+    /// back to the forum — and the short-lived cookie carrying `state`, the
+    /// nonce and the PKCE verifier is set on the blog and never travels
+    /// there. The blog could not be entered at all.
+    #[tokio::test]
+    async fn each_space_is_sent_back_to_its_own_address() {
+        let server = MockServer::start().await;
+        let provider = provider_at(&server).await;
+
+        let blog = provider
+            .begin_login("https://blog.example.org/auth/callback")
+            .expect("begin");
+
+        assert!(
+            blog.url
+                .contains("redirect_uri=https%3A%2F%2Fblog.example.org%2Fauth%2Fcallback"),
+            "the blog must come back to the blog, not to whatever the client was built with: {}",
+            blog.url
+        );
+        assert!(
+            !blog.url.contains("forum.example.org"),
+            "and not to the forum: {}",
+            blog.url
+        );
     }
 
     #[tokio::test]
@@ -211,7 +260,7 @@ mod tests {
         let server = MockServer::start().await;
         let provider = provider_at(&server).await;
 
-        let start = provider.begin_login().expect("begin");
+        let start = provider.begin_login(REDIRECT).expect("begin");
         let url = start.url;
 
         assert!(
@@ -241,8 +290,8 @@ mod tests {
     async fn two_logins_do_not_share_their_secrets() {
         let server = MockServer::start().await;
         let provider = provider_at(&server).await;
-        let a = provider.begin_login().expect("begin");
-        let b = provider.begin_login().expect("begin");
+        let a = provider.begin_login(REDIRECT).expect("begin");
+        let b = provider.begin_login(REDIRECT).expect("begin");
         assert_ne!(a.pending.state, b.pending.state);
         assert_ne!(a.pending.nonce, b.pending.nonce);
         assert_ne!(a.pending.pkce_verifier, b.pending.pkce_verifier);
@@ -255,10 +304,10 @@ mod tests {
         // error instead of the assertion below.
         let server = MockServer::start().await;
         let provider = provider_at(&server).await;
-        let start = provider.begin_login().expect("begin");
+        let start = provider.begin_login(REDIRECT).expect("begin");
 
         let err = provider
-            .finish_login(start.pending, "any-code", "not-the-state")
+            .finish_login(start.pending, "any-code", "not-the-state", REDIRECT)
             .await
             .expect_err("must refuse");
         assert!(

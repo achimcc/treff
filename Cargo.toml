@@ -1,6 +1,6 @@
 [package]
 name = "treff"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "A small forum for closed groups, authenticated by your own OIDC provider"

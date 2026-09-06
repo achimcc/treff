@@ -20,7 +20,7 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.1.4** — everything below works and is covered by tests. It is in
+Early. **v0.2.0** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06; nobody but its author has posted in it
 yet. Search and notifications are the next stage.
 
@@ -80,8 +80,14 @@ escalation by typo.
 | `TREFF_OIDC_ISSUER` | issuer URL; discovery hangs off it; **required** |
 | `TREFF_OIDC_CLIENT_ID` | **required** |
 | `TREFF_OIDC_CLIENT_SECRET_FILE` | a **path**, never the secret itself; **required** |
-| `TREFF_OIDC_REDIRECT_URI` | where the provider sends people back to; **required** |
 | `TREFF_OIDC_GROUP_CLAIM` | default `groups` |
+
+There is no redirect-URI setting. Each space is sent back to
+`https://<its host>/auth/callback`, so **register one redirect URI per space**
+with your provider. A single one could only ever be right for a single space:
+the short-lived cookie that carries `state`, the nonce and the PKCE verifier
+is set on the host the sign-in began at, and a browser does not send it to
+another host.
 
 ## Behind a reverse proxy
 
@@ -104,8 +110,9 @@ treff needs a confidential client with the authorization code flow, PKCE, and
 a groups claim in the ID token. Two worked examples:
 
 **Authentik** — create an OAuth2/OpenID provider with client type
-*confidential*, redirect URI `https://forum.example.org/auth/callback`, and the
-`openid profile` scopes. The standard `profile` scope already carries
+*confidential*, one redirect URI **per space**
+(`https://forum.example.org/auth/callback` *and*
+`https://blog.example.org/auth/callback`), and the `openid profile` scopes. The standard `profile` scope already carries
 `groups`, so `TREFF_OIDC_GROUP_CLAIM=groups` is all treff needs; no property
 mapping to write. The issuer is
 `https://auth.example.org/application/o/<slug>/`.
@@ -137,7 +144,6 @@ With Nix, the flake offers a package and a module:
       issuer = "https://auth.example.org/application/o/treff/";
       clientId = "treff";
       clientSecretFile = "/run/secrets/treff-oidc";
-      redirectUri = "https://forum.example.org/auth/callback";
     };
     spaces = [ /* the same shape as the TOML above */ ];
   };

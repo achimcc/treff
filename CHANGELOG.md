@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0 — 2026-09-06
+
+**Nobody could sign in.** Everything below is one bug, found the first time a
+real person clicked a link.
+
+### Fixed
+
+- **`/auth/callback` was never mounted.** `finish_login` was written, and unit
+  tested against a mock provider, and the router had `/auth/login` and nothing
+  else. The provider returned people to `/auth/callback` and treff answered
+  **404**. Every test was green, because they exercised the functions and not
+  the routes: *a function that works and is not reachable is not a feature.*
+  `tests/signing_in.rs` now asks the router the question the provider asks it.
+- **`/auth/logout` was missing too**, while every page linked to it. Signing
+  out ends the session in the database, not only in the browser.
+- **The redirect URI is derived per space** instead of configured once.
+  One process serves several hosts, and a cookie belongs to exactly one of
+  them: a sign-in begun on `blog.example.org` cannot be finished on
+  `forum.example.org`, because the short-lived cookie carrying `state`, the
+  nonce and the PKCE verifier is never sent there. Each space is now sent back
+  to `https://<its host>/auth/callback`.
+
+### Removed — breaking
+
+- `TREFF_OIDC_REDIRECT_URI` and `services.treff.oidc.redirectUri`. Register one
+  redirect URI **per space** with your provider instead. Keeping the option
+  would have meant keeping a setting that could only ever be right for one of
+  the addresses it applied to.
+
 ## 0.1.4 — 2026-09-06
 
 - **`title_key`** per space: the front matter key that holds an article's
