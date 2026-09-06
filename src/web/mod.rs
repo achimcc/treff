@@ -2,6 +2,8 @@
 //! what every answer carries. No page is built here — this is the frame each
 //! later page passes through, and it is the layer that fails closed.
 
+pub mod views;
+
 use crate::auth::{OidcSettings, Sessions};
 use crate::authz::Identity;
 use crate::config::{Config, Space};
@@ -201,8 +203,114 @@ fn tracing_error(what: &str, e: &anyhow::Error) {
     eprintln!("treff: {what}: {e}");
 }
 
-async fn placeholder() -> &'static str {
-    "treff"
+/// The cookie that carries a session. Same function in production and in the
+/// tests, so a test that gets in proves a browser would.
+pub fn session_cookie(session_id: String) -> Cookie<'static> {
+    let mut c = Cookie::new(SESSION_COOKIE, session_id);
+    c.set_http_only(true);
+    c.set_secure(true);
+    c.set_same_site(SameSite::Lax);
+    c.set_path("/");
+    c
+}
+
+fn forbidden() -> Response {
+    (StatusCode::FORBIDDEN, "not for you").into_response()
+}
+
+/// A refusal that says as little as possible: through this address the thing
+/// does not exist, and the answer must not hint otherwise.
+fn not_found() -> Response {
+    (StatusCode::NOT_FOUND, "not found").into_response()
+}
+
+fn server_error(what: &str, e: &anyhow::Error) -> Response {
+    tracing_error(what, e);
+    (StatusCode::INTERNAL_SERVER_ERROR, "something went wrong").into_response()
+}
+
+const PAGE_SIZE: i64 = 50;
+
+/// The front page of a space: its first category.
+async fn space_index(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+) -> Response {
+    let Some(category) = space.categories.first() else {
+        return not_found();
+    };
+    render_space(&app, &space, &who, &category.slug.clone()).await
+}
+
+async fn space_category(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(slug): axum::extract::Path<String>,
+) -> Response {
+    if space.category(&slug).is_none() {
+        return not_found();
+    }
+    render_space(&app, &space, &who, &slug).await
+}
+
+async fn render_space(app: &AppState, space: &Space, who: &Identity, slug: &str) -> Response {
+    if !crate::authz::may_read(who, space) {
+        return forbidden();
+    }
+
+    let topics =
+        match crate::db::topics::list_topics(&app.db, &space.host, slug, PAGE_SIZE, 0).await {
+            Ok(t) => t,
+            Err(e) => return server_error("cannot list topics", &e),
+        };
+
+    // A timeline shows the bodies, so it needs the opening post of each topic.
+    // A topic list does not, and does not ask for them.
+    let mut rows = Vec::with_capacity(topics.len());
+    for topic in topics {
+        let first = if space.view == crate::config::View::Timeline {
+            match crate::db::topics::load_topic(&app.db, &space.host, topic.id).await {
+                Ok(Some((_, posts))) => posts.into_iter().next(),
+                Ok(None) => None,
+                Err(e) => return server_error("cannot load a topic", &e),
+            }
+        } else {
+            None
+        };
+        rows.push((topic, first));
+    }
+
+    crate::web::views::space_page(space, who, &rows).into_response()
+}
+
+async fn topic_page(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    match crate::db::topics::load_topic(&app.db, &space.host, id).await {
+        // Scoped by space in the query, so a topic from the other address is
+        // simply not there — no 403 that would confirm it exists.
+        Ok(None) => not_found(),
+        Ok(Some((topic, posts))) => {
+            crate::web::views::topic_page(&space, &who, &topic, &posts).into_response()
+        }
+        Err(e) => server_error("cannot load a topic", &e),
+    }
+}
+
+async fn stylesheet() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        crate::web::views::STYLESHEET,
+    )
+        .into_response()
 }
 
 pub fn router(state: AppState) -> Router {
@@ -213,7 +321,10 @@ pub fn router(state: AppState) -> Router {
     };
 
     Router::new()
-        .route("/", get(placeholder))
+        .route("/", get(space_index))
+        .route("/c/{slug}", get(space_category))
+        .route("/t/{id}", get(topic_page))
+        .route("/assets/style.css", get(stylesheet))
         .route("/auth/login", get(login))
         .layer(middleware::from_fn_with_state(
             state.clone(),

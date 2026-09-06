@@ -22,7 +22,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 6** — Markdown rendered and sanitized |
 | Done | **Task 7** — sign-in: settings, claims, sessions, and the OIDC flow |
 | Done | **Task 8** — the web frame: host to space, sign-in gate, security headers |
-| Next | **Task 9** — reading: timeline and topic list |
+| Done | **Task 9** — reading: timeline, topic list, topic page |
+| Next | **Task 10** — writing: open a topic, reply |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -262,7 +263,7 @@ itself.
 commenting out the CSP layer drops a third. The header layers sit outermost on
 purpose, so a refusal carries them too — a 403 is a page as well.
 
-## Task 9 · Reading: timeline and topic list
+## Task 9 · Reading: timeline and topic list ✅
 
 **Files:** add `src/web/views.rs`; change `src/web/mod.rs`
 **Produces:** `views::layout`, `views::space_page`, `views::topic_page`;

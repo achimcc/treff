@@ -1,4 +1,9 @@
 //! The setup every integration test shares.
+//!
+//! Cargo compiles this module separately into every test binary, so whatever
+//! one file does not use is dead code *there*. That is what the allow is for —
+//! not for genuinely unused helpers.
+#![allow(dead_code)]
 
 use treff::config::Config;
 
@@ -62,4 +67,47 @@ pub async fn setup_with_db() -> (tempfile::TempDir, treff::db::Db, axum::Router)
     .expect("state");
     let app = treff::web::router(state);
     (dir, db, app)
+}
+
+/// Creates a session for someone in `groups` and returns the `Cookie:` header
+/// value that carries it.
+///
+/// The cookie is built with the very function the application uses, and
+/// encrypted with the key from the same directory — so a test that passes here
+/// means a browser would be let in for the same reason.
+pub async fn signed_in(
+    db: &treff::db::Db,
+    dir: &std::path::Path,
+    subject: &str,
+    groups: &[&str],
+) -> String {
+    let identity = treff::authz::Identity {
+        subject: subject.into(),
+        name: format!("{subject} the tester"),
+        groups: groups.iter().map(|g| (*g).to_string()).collect(),
+    };
+    let sid = treff::auth::Sessions::create(db, &identity)
+        .await
+        .expect("session");
+
+    let key = treff::web::load_or_create_cookie_key(dir).expect("key");
+    let jar = axum_extra::extract::cookie::PrivateCookieJar::new(key)
+        .add(treff::web::session_cookie(sid));
+
+    // The jar's own iterator hands back the DECRYPTED value — useful for a
+    // handler, useless for a client. What a browser would send is what the
+    // Set-Cookie header carries, so take it from there.
+    use axum::response::IntoResponse;
+    let response = jar.into_response();
+    let set_cookie = response
+        .headers()
+        .get(axum::http::header::SET_COOKIE)
+        .expect("Set-Cookie")
+        .to_str()
+        .expect("ascii");
+    set_cookie
+        .split(';')
+        .next()
+        .expect("name=value")
+        .to_string()
 }
