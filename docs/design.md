@@ -98,16 +98,18 @@ headers, including what was wrong with the first draft, is
 # spaces.toml — the interface to whoever runs an instance.
 
 [[space]]
-host  = "blog.example.org"
-title = "Notes"
-view  = "timeline"
-read  = ["Household"]
+host     = "blog.example.org"
+title    = "Notes"
+view     = "timeline"
+read     = ["Household", "Friends"]
+# Articles are mirrored from this directory instead of being written here.
+articles = "/etc/treff/articles"
 
   [[space.category]]
   slug  = "notes"
   title = "Notes"
-  post  = ["Writers"]        # who may open a topic
-  reply = ["Household"]      # who may reply
+  post  = []                            # nobody opens an article in a browser
+  reply = ["Household", "Friends"]      # everybody comments
 
 [[space]]
 host  = "forum.example.org"
@@ -116,8 +118,14 @@ view  = "topics"
 read  = ["Household", "Friends"]
 
   [[space.category]]
-  slug  = "general"
-  title = "General"
+  slug  = "films"
+  title = "Films"
+  post  = ["Household", "Friends"]
+  reply = ["Household", "Friends"]
+
+  [[space.category]]
+  slug  = "offtopic"
+  title = "Off topic"
   post  = ["Household", "Friends"]
   reply = ["Household", "Friends"]
 ```
@@ -137,12 +145,36 @@ read  = ["Household", "Friends"]
   in the refusal branch. That is the intended failure: guessing would make the
   separation between two audiences a matter of luck.
 
+### Articles that are written somewhere else
+
+A space may name an `articles` directory. Everything in it that looks like
+`YYYY-MM-DD-<name>.md` with a `title` in its front matter becomes a topic —
+mirrored into the database at startup, keyed by its file name, so a comment is
+an ordinary reply to an ordinary topic and every rule above still holds.
+
+The point is not the file format. It is that **the article and the
+announcement are the same text**: whoever runs an instance already writes a
+line about what changed, and this makes that line the article rather than a
+second thing to write. A category fed this way sets `post = []` — an article
+is opened by a commit in the directory, not by a form in a browser. That is
+also why "a category nobody may post in" is legal and not an error.
+
+Mirroring is idempotent and one-way: files decide the title and the body,
+the database decides nothing about them and keeps the comments. An article
+whose file disappears stops being listed; its comments are kept, because
+deleting what people wrote is not a side effect a file deletion should have.
+
 ## 5. Scope
 
 **Stage 1 — what makes it usable at all:**
 
 - Topics and replies in Markdown, rendered and put through a sanitizer.
 - Two views: timeline (reverse chronological) and topic list (by last reply).
+- **A category overview** for a space with more than one category — which is
+  the normal case for a forum, and was an oversight in the first draft: the
+  front page showed whichever category happened to be first.
+- **Articles mirrored from a directory** (§4), so a microblog can be fed by
+  the same text that announces a change elsewhere.
 - Attachments: images (§6).
 - **Everyone may edit and delete their own, and nobody else's** — including
   whoever runs the instance. In a closed circle every post carries a name; a

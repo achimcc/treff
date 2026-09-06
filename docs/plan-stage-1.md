@@ -1,7 +1,7 @@
 # Stage 1 — the implementation plan
 
-Sixteen tasks, worked one at a time, test first. Each task ends in something
-that runs and can be checked on its own. `design.md` says *what* and *why*;
+Sixteen tasks, plus two added on 2026-09-06, worked one at a time and test
+first. Each task ends in something that runs and can be checked on its own. `design.md` says *what* and *why*;
 this file says *in which order* and *what counts as done*.
 
 **How to work a task:** write the test, **see it fail** with the expected
@@ -23,7 +23,9 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 7** — sign-in: settings, claims, sessions, and the OIDC flow |
 | Done | **Task 8** — the web frame: host to space, sign-in gate, security headers |
 | Done | **Task 9** — reading: timeline, topic list, topic page |
-| Next | **Task 10** — writing: open a topic, reply |
+| Next | **Task 9b** — the category overview |
+| Then | **Task 9c** — articles mirrored from a directory |
+| Then | **Task 10** — writing: open a topic, reply |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -274,6 +276,56 @@ sees the rendered **bodies** on a `timeline` space and a **list of titles** on
 a `topics` space; someone without the reading group gets **403**; a topic from
 the blog is **404** through the forum's address; the page contains **no
 `<script`** element at all.
+
+## Task 9b · The category overview
+
+**Files:** change `src/web/views.rs`, `src/web/mod.rs`
+**Produces:** `views::category_index`; `GET /` on a `topics` space lists the
+categories instead of jumping into the first one.
+
+Added on 2026-09-06, from the intended use: a forum with five categories
+(films, series, off topic, feature requests, server services) has no sensible
+"first" one, and the front page silently picked whichever the configuration
+happened to list first.
+
+**Assertions to write first:** the front page of a `topics` space names every
+category the reader may see, with its topic count and the time of its last
+activity; a category the reader may not `read` — that is, none, since `read`
+is per space — still never appears through another space's address; a
+`timeline` space keeps going straight to its entries, because a blog with one
+category has nothing to choose from; an empty category is listed, not hidden.
+
+## Task 9c · Articles mirrored from a directory
+
+**Files:** add `src/articles.rs`, `migrations/0002_articles.sql`; change
+`src/config.rs` (`articles` per space), `src/main.rs`
+**Produces:** `articles::mirror(&Db, space, &Path) -> Result<Mirrored>`;
+`topics.source_key` (UNIQUE, nullable).
+
+Added on 2026-09-06 (design §4, "Articles that are written somewhere else").
+The microblog is fed by the same Markdown files that announce a change
+elsewhere — front matter `title`, date from the file name — so the article and
+the announcement are one text and not two. Comments stay ordinary replies, so
+everything already built keeps working.
+
+**Assertions to write first:**
+
+- A directory of two files becomes two topics, newest first by the date in the
+  name; the front matter `title` becomes the title, the prose becomes the
+  opening post.
+- Mirroring **twice** changes nothing (idempotent, keyed by file name) — the
+  test runs it three times and counts.
+- An edited file updates title and body **and keeps the comments** underneath.
+- A file that disappears stops being listed, and its comments survive in the
+  database. Deleting what people wrote is not a side effect a file deletion
+  may have.
+- A file without front matter, with an unparsable date, or with a `title` that
+  is empty is **skipped with a message on stderr**, and the other files still
+  mirror. One broken article must not stop a start.
+- The body goes through the same sanitizer as everything else: an article is
+  not more trusted for coming from a file.
+- A space **without** an `articles` directory is untouched; nothing mirrors
+  into a forum by accident.
 
 ## Task 10 · Writing: open a topic, reply
 
