@@ -18,7 +18,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 2** — configuration: spaces, categories, and the rules that refuse a broken file |
 | Done | **Task 3** — permissions as pure functions |
 | Done | **Task 4** — database: schema, WAL, enforced foreign keys, migrations |
-| Next | **Task 5** — topics and posts: the storage layer |
+| Done | **Task 5** — topics and posts: storage, ordering, space isolation |
+| Next | **Task 6** — rendering and sanitizing Markdown |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -126,7 +127,7 @@ of them — asking one proves nothing about the rest.
 Also: `sqlx` needs the **`macros`** feature for `sqlx::migrate!`, not just
 `migrate` — the plan's `cargo add` line was one feature short.
 
-## Task 5 · Topics and posts: the storage layer
+## Task 5 · Topics and posts: the storage layer ✅
 
 **Files:** add `src/db/topics.rs`; `src/db/mod.rs` gains `pub mod topics;`
 **Produces:** `Topic { id, space, category, title, author_subject, author_name,
@@ -139,6 +140,19 @@ author_subject, author_name, created_at, updated_at, edited }`,
 `list_topics` orders by last reply for `topics` and by creation for
 `timeline`; `load_topic` **scopes by space** — a topic from another space is
 `None`, not a permission error later on; paging is stable.
+
+**Added while doing it:** `list_topics` **clamps** limit and offset instead of
+trusting them — these numbers arrive from a query string one day, and
+`LIMIT -1` means "everything" in SQLite. And the ordering test sets the
+timestamps by hand: two topics created in the same second have the same
+`updated_at`, so "a reply lifts its topic" is not observable at second
+resolution otherwise.
+
+**Honest about one test:** `a_refused_reply_stores_no_post` proves the foreign
+key, not the transaction — the first statement is the one that fails, so there
+is nothing to roll back. The rollback path has no cheap trigger (the second
+statement is an UPDATE that cannot fail), so it is left untested rather than
+fake-tested.
 
 ## Task 6 · Rendering and sanitizing Markdown
 

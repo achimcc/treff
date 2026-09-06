@@ -1,6 +1,8 @@
 //! The database: one SQLite file, opened once at startup and handed around as
 //! a pool.
 
+pub mod topics;
+
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use std::path::Path;
