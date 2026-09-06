@@ -16,7 +16,8 @@ message, implement the smallest thing that passes, see it green
 |---|---|
 | Done | **Task 1** — crate, AGPL-3.0, flake, smoke tests (`cd9f1f2`, `068d5d6`) |
 | Done | **Task 2** — configuration: spaces, categories, and the rules that refuse a broken file |
-| Next | **Task 3** — permissions as pure functions |
+| Done | **Task 3** — permissions as pure functions |
+| Next | **Task 4** — database: schema, pragmas, migrations |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -47,7 +48,7 @@ unconfigured would serve a forum with no idea who anyone is).
 
 ## Task 2 · Configuration: spaces, categories, groups ✅
 
-**Files:** add `src/config.rs`; `src/main.rs` gains `mod config;`
+**Files:** add `src/config.rs`; `src/lib.rs` gains `pub mod config;`
 **Produces:** `Config`, `Space`, `Category`, `View`, `ConfigError`;
 `Config::parse(&str) -> Result<Config, ConfigError>`;
 `Config::space_for_host(&self, host: &str) -> Option<&Space>`;
@@ -82,9 +83,9 @@ The slug rule is strict on purpose: lower-case ASCII letters, digits and
 hyphens, non-empty. A slug ends up in a URL path, so anything else is either a
 routing bug or an attempt at one.
 
-## Task 3 · Permissions as pure functions
+## Task 3 · Permissions as pure functions ✅
 
-**Files:** add `src/authz.rs`; `src/main.rs` gains `mod authz;`
+**Files:** add `src/authz.rs`; `src/lib.rs` gains `pub mod authz;`
 **Consumes:** `Space`, `Category`.
 **Produces:** `Identity { subject, name, groups }`,
 `Identity::in_any(&self, &[String]) -> bool`,
