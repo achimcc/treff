@@ -21,7 +21,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 5** — topics and posts: storage, ordering, space isolation |
 | Done | **Task 6** — Markdown rendered and sanitized |
 | Done | **Task 7** — sign-in: settings, claims, sessions, and the OIDC flow |
-| Next | **Task 8** — the web frame: host to space, sign-in gate, security headers |
+| Done | **Task 8** — the web frame: host to space, sign-in gate, security headers |
+| Next | **Task 9** — reading: timeline and topic list |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -224,16 +225,26 @@ identifier *is* the credential. A session whose stored groups cannot be parsed
 loads with **no** groups, so failing closed holds even against our own
 storage.
 
-## Task 8 · The web frame: host→space, sign-in gate, security headers
+## Task 8 · The web frame: host→space, sign-in gate, security headers ✅
 
 **Files:** add `src/web/mod.rs`; `src/main.rs` starts the server
 **Consumes:** `Config`, `Sessions`, `Db`.
-**Produces:** `AppState { config, db, oidc, cookie_key }`,
-`router(state) -> axum::Router`, extractors `CurrentSpace` and `CurrentUser`,
-plus `AppState::for_tests(...)` under `#[cfg(any(test, feature = "testing"))]`
-— a fixed cookie key and OIDC settings pointing nowhere. Without that
-constructor every integration test would need a reachable identity provider,
-and the tests would be a network dependency instead of tests.
+**Produces:** `AppState { config, db, oidc, provider, cookie_key }`,
+`AppState::new(...)`, `router(state) -> axum::Router`, extractors
+`CurrentSpace` and `CurrentUser`.
+
+**No `AppState::for_tests`, against the plan** — for two reasons that only
+showed up while building it. Cargo refuses a self dev-dependency, which is the
+usual way to switch on a `testing` feature for integration tests; without it
+the constructor would either be missing from `tests/` or be compiled into the
+shipped binary. And what it would carry there is a **fixed cookie key**. The
+tests build the state from the public pieces instead (`tests/common/mod.rs`),
+with `provider: None` — that is what keeps the suite independent of a
+reachable identity provider, and it needs no special constructor.
+
+**Added:** the cookie key is generated once and stored as `cookie.key` (mode
+0600) in the data directory. A key made up per start would sign everyone out
+on every restart although their sessions are still in the database.
 
 **Assertions to write first:** an unknown `Host` is **403** (not a redirect to
 the first space); a request without a session is redirected to sign-in, and
@@ -241,6 +252,15 @@ the redirect target is not attacker-controlled; every response carries the CSP
 without `unsafe-inline`, `X-Content-Type-Options: nosniff`, a `Referrer-Policy`
 and a `frame-ancestors` denial; the session cookie is `HttpOnly`, `Secure`,
 `SameSite=Lax`.
+
+**The gate is middleware in front of the routes**, not a check inside each
+handler, so a page added later cannot forget it. `/auth/*` and `/assets/*` are
+the only open paths — without that the redirect to the sign-in would point at
+itself.
+
+**Checked in both directions:** removing the host check drops two tests, and
+commenting out the CSP layer drops a third. The header layers sit outermost on
+purpose, so a refusal carries them too — a 403 is a page as well.
 
 ## Task 9 · Reading: timeline and topic list
 

@@ -38,7 +38,7 @@ pub enum View {
     Topics,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Category {
     pub slug: String,
@@ -51,7 +51,7 @@ pub struct Category {
     pub reply: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Space {
     pub host: String,
