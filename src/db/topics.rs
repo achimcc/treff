@@ -157,7 +157,7 @@ pub async fn category_counts(
 
     let rows = sqlx::query(
         "SELECT category, count(*) AS n, max(updated_at) AS last
-         FROM topics WHERE space = ? GROUP BY category",
+         FROM topics WHERE space = ? AND hidden = 0 GROUP BY category",
     )
     .bind(space)
     .fetch_all(db.pool())
@@ -195,7 +195,9 @@ pub async fn list_topics(
 ) -> anyhow::Result<Vec<Topic>> {
     let (limit, offset) = clamp_page(limit, offset);
     let rows = sqlx::query(
-        "SELECT * FROM topics WHERE space = ? AND category = ?
+        // `hidden = 0` keeps withdrawn articles out of the list without
+        // deleting them — the comments underneath are not ours to remove.
+        "SELECT * FROM topics WHERE space = ? AND category = ? AND hidden = 0
          ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?",
     )
     .bind(space)
@@ -215,7 +217,7 @@ pub async fn load_topic(
     space: &str,
     id: i64,
 ) -> anyhow::Result<Option<(Topic, Vec<Post>)>> {
-    let Some(row) = sqlx::query("SELECT * FROM topics WHERE id = ? AND space = ?")
+    let Some(row) = sqlx::query("SELECT * FROM topics WHERE id = ? AND space = ? AND hidden = 0")
         .bind(id)
         .bind(space)
         .fetch_optional(db.pool())

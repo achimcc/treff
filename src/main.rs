@@ -31,6 +31,43 @@ fn main() -> ExitCode {
     }
 }
 
+/// Brings the article directories into the database, once, at startup.
+///
+/// A directory that cannot be read stops the start: a wrong path would
+/// otherwise show up as a blog that is simply empty, which nobody reads as a
+/// mistake. A single unreadable FILE does not — it is skipped with a line on
+/// stderr, because one broken article must not keep the forum shut.
+///
+/// The clock is read here and nowhere below, so "a file dated in the future is
+/// a draft" has one place where it is decided.
+async fn mirror_articles(config: &treff::config::Config, db: &treff::db::Db) -> anyhow::Result<()> {
+    let today = time::OffsetDateTime::now_utc().date().to_string();
+    for space in &config.spaces {
+        let Some(dir) = space.articles.as_deref() else {
+            continue;
+        };
+        let Some(category) = space.categories.first() else {
+            anyhow::bail!(
+                "{}: articles are configured but the space has no category",
+                space.host
+            );
+        };
+        let report = treff::articles::mirror(
+            db,
+            &space.host,
+            &category.slug,
+            std::path::Path::new(dir),
+            &today,
+        )
+        .await?;
+        eprintln!(
+            "treff: {}: {} articles, {} withdrawn, {} skipped",
+            space.host, report.mirrored, report.hidden, report.skipped
+        );
+    }
+    Ok(())
+}
+
 fn env_path(name: &str, fallback: &str) -> PathBuf {
     PathBuf::from(std::env::var(name).unwrap_or_else(|_| fallback.to_string()))
 }
@@ -44,6 +81,8 @@ async fn serve() -> anyhow::Result<()> {
     let data_dir = env_path("TREFF_DATA_DIR", "/var/lib/treff");
     std::fs::create_dir_all(&data_dir)?;
     let db = treff::db::Db::open(&data_dir.join("treff.db")).await?;
+
+    mirror_articles(&config, &db).await?;
 
     let oidc = treff::auth::OidcSettings::from_env()?;
     let redirect_uri = std::env::var("TREFF_OIDC_REDIRECT_URI").map_err(|_| {

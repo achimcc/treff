@@ -61,6 +61,12 @@ pub struct Space {
     pub read: Vec<String>,
     #[serde(rename = "category", default)]
     pub categories: Vec<Category>,
+    /// A directory of `YYYY-MM-DD-<name>.md` articles to mirror into this
+    /// space's **first** category. A space with one category — a blog — is
+    /// what this is for; naming several and expecting a choice would be a
+    /// second mechanism for no gain.
+    #[serde(default)]
+    pub articles: Option<String>,
 }
 
 impl Space {
@@ -246,6 +252,31 @@ read  = ["Household", "Friends"]
                 "accepted the slug {bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_space_may_name_an_article_directory() {
+        let with = EXAMPLE.replace(
+            "view  = \"timeline\"",
+            "view  = \"timeline\"\narticles = \"/etc/treff/articles\"",
+        );
+        let c = Config::parse(&with).expect("valid");
+        assert_eq!(
+            c.space_for_host("blog.example.org")
+                .expect("space")
+                .articles
+                .as_deref(),
+            Some("/etc/treff/articles")
+        );
+        // And a space without one keeps None rather than an empty path.
+        let plain = Config::parse(EXAMPLE).expect("valid");
+        assert!(
+            plain
+                .space_for_host("forum.example.org")
+                .expect("space")
+                .articles
+                .is_none()
+        );
     }
 
     #[test]

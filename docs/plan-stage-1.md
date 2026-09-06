@@ -24,8 +24,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 8** — the web frame: host to space, sign-in gate, security headers |
 | Done | **Task 9** — reading: timeline, topic list, topic page |
 | Done | **Task 9b** — the category overview |
-| Next | **Task 9c** — articles mirrored from a directory |
-| Then | **Task 10** — writing: open a topic, reply |
+| Done | **Task 9c** — articles mirrored from a directory |
+| Next | **Task 10** — writing: open a topic, reply |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -312,7 +312,7 @@ The existing test for the topic list moved from `/` to `/c/general`, because
 that is where the list now lives. That change of behaviour is the point of
 this task, not a casualty of it.
 
-## Task 9c · Articles mirrored from a directory
+## Task 9c · Articles mirrored from a directory ✅
 
 **Files:** add `src/articles.rs`, `migrations/0002_articles.sql`; change
 `src/config.rs` (`articles` per space), `src/main.rs`
@@ -343,11 +343,29 @@ everything already built keeps working.
   not more trusted for coming from a file.
 - A space **without** an `articles` directory is untouched; nothing mirrors
   into a forum by accident.
+- A **missing directory** is an error and stops the start. A wrong path would
+  otherwise look like a blog that is merely empty, which nobody reads as a
+  mistake. One broken FILE is the opposite case and only a skip.
 - **A file dated in the future does not appear**, and appears by itself once
   that day arrives (the test injects "today" rather than waiting). This is
   what lets an article be written while its subject is still being rolled out.
   The same limit was added to the other consumer of these files on the same
   day, so the two channels do not disagree about one text.
+
+**Done.** Two things the assertions did not say, decided while building:
+
+- A withdrawn article is **hidden, not deleted** — `ON DELETE CASCADE` would
+  take the comments with it. `hidden = 0` therefore joins the WHERE clause of
+  every read, and a file that comes back brings its article and its comments
+  back with it. There is a test for the round trip.
+- An article is stored under the subject `treff:article`, which is nobody. No
+  account can edit it through the web, because `may_modify` compares subjects
+  — which is right: the file decides.
+
+And two of my own mistakes, both caught by the tests: `read_dir` gives no
+order, so the first test wrongly assumed which file became topic 1; and
+`hidden` was written but not yet read, so a withdrawn article stayed on the
+page while the counter said it was gone.
 
 ## Task 10 · Writing: open a topic, reply
 

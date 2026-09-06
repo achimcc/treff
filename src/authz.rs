@@ -70,6 +70,7 @@ mod tests {
             view: View::Topics,
             read: read.iter().map(|g| (*g).to_string()).collect(),
             categories: vec![],
+            articles: None,
         }
     }
 
