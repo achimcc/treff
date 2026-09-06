@@ -26,13 +26,33 @@ pub fn layout(space: &Space, who: &Identity, lang: Lang, title: &str, body: Mark
             }
             body {
                 header {
-                    a class="home" href="/" { (space.title) }
-                    nav {
-                        span class="who" { (who.name) }
-                        a href="/auth/logout" { (lang.t("sign_out")) }
+                    // The prompt line is shell, not prose: it says who you are
+                    // and where you are, in the one notation that needs no
+                    // translation. The command follows the view, because a
+                    // timeline is read and a topic list is browsed.
+                    p class="prompt" {
+                        b { (who.name) "@" (space.host) } ":~$ "
+                        @match space.view {
+                            View::Timeline => "cat *.md",
+                            View::Topics => "ls -la",
+                        }
+                    }
+                    div class="headline" {
+                        span class="brand" {
+                            a class="home" href="/" { (space.title) }
+                            span class="cursor" {}
+                        }
+                        nav {
+                            span class="who" { (who.name) }
+                            a href="/auth/logout" { (lang.t("sign_out")) }
+                        }
                     }
                 }
                 main { (body) }
+                footer {
+                    p class="prompt" { "# " (space.host) }
+                    p { (lang.t("footer_note")) }
+                }
             }
         }
     }
@@ -49,6 +69,7 @@ pub fn category_index(
     rows: &[(&Category, CategoryCount)],
 ) -> Markup {
     let body = html! {
+        h2 class="section-head" { (lang.t("sections")) }
         ul class="categories" {
             @for (category, count) in rows {
                 li {
@@ -58,8 +79,14 @@ pub fn category_index(
                         @else { (count.topics) " " (lang.t("topic_many")) }
                     }
                     span class="byline" {
+                        // Ein nacktes Datum in einer Liste von Bereichen ist
+                        // eine Raetselfrage: Angelegt? Zuletzt gelesen? Das
+                        // Wort davor kostet nichts und beantwortet sie.
                         @match count.last_activity {
-                            Some(t) => (crate::web::views::day(t)),
+                            Some(t) => {
+                                (lang.t("last_activity")) " "
+                                span class="value" { (crate::web::views::day(t)) }
+                            },
                             None => (lang.t("no_topics_yet")),
                         }
                     }
@@ -102,7 +129,17 @@ pub fn space_page(
                 @for (topic, first) in topics {
                     article class="entry" {
                         h2 { a href={ "/t/" (topic.id) } { (topic.title) } }
-                        p class="byline" { (topic.author_name) }
+                        // Das Datum steht hier, weil es die ORDNUNG dieser
+                        // Ansicht ist: Eine Zeitleiste sortiert danach, und
+                        // bei gespiegelten Artikeln entscheidet es sogar, ob
+                        // ein Eintrag schon erscheint. Es wegzulassen hiesse,
+                        // die einzige sichtbare Begruendung der Reihenfolge zu
+                        // verstecken.
+                        p class="byline" {
+                            span class="name" { (topic.author_name) }
+                            span class="sep" { " · " }
+                            (day(topic.created_at))
+                        }
                         @if let Some(post) = first {
                             div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
                         }
@@ -114,7 +151,11 @@ pub fn space_page(
                     @for (topic, _) in topics {
                         li {
                             a href={ "/t/" (topic.id) } { (topic.title) }
-                            span class="byline" { (topic.author_name) }
+                            span class="byline" {
+                                span class="name" { (topic.author_name) }
+                                span class="sep" { " · " }
+                                (day(topic.updated_at))
+                            }
                         }
                     }
                 }
@@ -154,7 +195,9 @@ pub fn topic_page(
         @for post in posts {
             article class="post" {
                 p class="byline" {
-                    (post.author_name)
+                    span class="name" { (post.author_name) }
+                    span class="sep" { " · " }
+                    (day(post.created_at))
                     @if post.edited { " (" (lang.t("edited")) ")" }
                 }
                 div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }

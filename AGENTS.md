@@ -30,6 +30,13 @@ Every change goes through it, in this order:
 
 Before finishing a task, also run `nix flake check`.
 
+**Changed the stylesheet or a template?** `cargo test --test preview --
+--ignored` writes the real pages — router output, not template output — to
+`target/preview/`. Open them. On 2026-09-06 that one pass found four faults no
+assertion could see: a header misaligned with its own text by 130px, a
+two-word button stretched across the column, a `>` marker leaking onto a date
+through a loose selector, and a bare date answering a question nobody asked.
+
 **Run all four, every time, and read their output.** On 2026-09-06 a commit
 went out with `nix flake check` green and `cargo fmt --check` never run — the
 flake check does not format-check, so nothing caught it until CI did, on the

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.2 — 2026-09-06
+
+Looks. The surface says what the software is: something you run yourself, on a
+machine you can point at, for people you know by name.
+
+- **A terminal, and dark only.** Near-black ground, one green that carries
+  headings, links and the cursor, one red that appears only where something
+  cannot be taken back. Two font stacks: monospace sets the tone, the prose
+  people came to read stays sans-serif. A light variant would be a second
+  design, not a lighter one, and two designs drift apart the moment one is
+  edited.
+- **A prompt line** naming who you are and where you are — shell notation,
+  which needs no translation — and a cursor that blinks in CSS, because there
+  is no script on any page here and this was not worth becoming the first
+  exception. It honours `prefers-reduced-motion`.
+- Section headings carry `[ brackets ]` from the stylesheet rather than from
+  the templates: the text inside them is translated, the brackets are not.
+- **Dates in the bylines.** A timeline is ordered by date and, for mirrored
+  articles, that date even decides whether an entry appears at all — leaving
+  it out hid the only visible reason for the order.
+- **`cargo test --test preview -- --ignored`** writes the real pages to
+  `target/preview/`. It found four faults in its first pass. A stylesheet is
+  the one part of a program whose failures are invisible to `cargo test`.
+
 ## 0.2.1 — 2026-09-06
 
 - **The groups never left the token.** `claims.additional_claims()` on a

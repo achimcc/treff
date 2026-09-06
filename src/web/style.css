@@ -1,178 +1,440 @@
 /* No font from elsewhere, no image from elsewhere: the CSP forbids both, and
    a forum for a closed circle has no business announcing its readers to a
-   content delivery network. */
+   content delivery network. Everything below is system fonts and colour.
+
+   THE LOOK IS A TERMINAL, and that is a decision rather than a decoration.
+   This is software you run yourself, on a machine you can point at, for people
+   you know by name — the surface says so instead of imitating the products
+   that do the opposite. Nothing here depends on it: strip the file and every
+   page still works, which is the test a stylesheet has to pass.
+
+   DARK ONLY. A light variant of this would be a second design, not a lighter
+   one, and two designs drift apart the moment one of them is edited. */
 
 :root {
-    color-scheme: light dark;
-    --ink: #1c1c1c;
-    --paper: #fbfaf7;
-    --muted: #6a6a6a;
-    --line: #dcd8d0;
-    --link: #2b5f8f;
-}
+    color-scheme: dark;
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --ink: #e6e3dd;
-        --paper: #1a1a1a;
-        --muted: #9b9b9b;
-        --line: #333;
-        --link: #8bb8e8;
-    }
+    /* The surfaces. Nearly black, not black: pure #000 next to the green
+       reads as a hole, and on OLED the step up to a card becomes visible. */
+    --ground: #07090a;
+    --veil: #0d1114;
+    --edge: #1b2327;
+
+    /* Three levels of text, not two: body, second voice, and the murmur that
+       carries prompts and datelines. The third is deliberately close to the
+       second — it is a rank, not another colour. */
+    --text: #c8d6cd;
+    --quiet: #8fa39a;
+    --murmur: #75887f;
+
+    /* One signal colour, and one that appears only when something is wrong. */
+    --on: #4ef08a;
+    --off: #ff3f74;
+
+    /* Two stacks, and the point is in the second: monospace sets the tone but
+       carries no prose. What people actually came to read stays sans-serif. */
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo,
+            Consolas, "Liberation Mono", monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+            "Helvetica Neue", Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
 
+html { -webkit-text-size-adjust: 100%; }
+
 body {
     margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font: 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--ground);
+    color: var(--text);
+    font: 400 16px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
 }
 
+/* --- The head ---------------------------------------------------------- */
+
 header {
+    position: relative;
+    padding: 20px clamp(1rem, 5vw, 3rem) 18px;
+    border-bottom: 1px solid var(--edge);
+    background:
+        radial-gradient(42rem 20rem at 6% -60%, hsl(150 90% 45% / .10), transparent 62%),
+        radial-gradient(34rem 18rem at 94% -50%, hsl(320 90% 55% / .06), transparent 65%);
+}
+
+/* Scanlines: visible as structure, never as flicker, and `pointer-events:
+   none` so they cover nothing you can click. */
+header::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(to bottom,
+        rgb(255 255 255 / .022) 0 1px, transparent 1px 3px);
+}
+
+/* Kopf, Inhalt und Fuss teilen sich EINE Spalte. Der Kopf ist ueber die
+   volle Breite gefaerbt (der Verlauf und die Scanlines sollen bis an den Rand
+   gehen), sein Inhalt sitzt aber in derselben Spalte wie der Text darunter —
+   sonst beginnt die Marke links aussen und der erste Satz 130px weiter
+   innen, und das liest sich wie ein Fehler, nicht wie ein Entwurf. */
+header .prompt,
+header .headline {
+    max-width: 46rem;
+    margin-inline: auto;
+}
+
+header .prompt,
+footer .prompt {
+    /* `margin-block`, NICHT die Kurzform `margin`: Die setzte den
+       `margin-inline: auto` der Regel darueber zurueck, und die Prompt-Zeile
+       stand danach als Einzige links aussen. */
+    margin-block: 0 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--murmur);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+header .prompt b { color: var(--quiet); font-weight: 600; }
+
+.headline {
+    position: relative;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 1rem clamp(1rem, 5vw, 3rem);
-    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+    gap: .5rem 1.5rem;
 }
+
+.brand { display: inline-flex; align-items: baseline; }
 
 header .home {
+    font-family: var(--mono);
+    font-size: clamp(20px, 3.4vw, 28px);
     font-weight: 600;
-    font-size: 1.1rem;
+    letter-spacing: -.01em;
     text-decoration: none;
-    color: var(--ink);
+    color: var(--on);
+    text-shadow: 0 0 24px hsl(150 90% 55% / .30);
 }
 
-header nav { display: flex; align-items: baseline; gap: 1rem; }
+/* The cursor is CSS, not script: there is no script on any page here, and a
+   blinking block is not worth becoming the first exception. */
+.cursor {
+    display: inline-block;
+    width: .58em;
+    height: 1em;
+    margin-left: .12em;
+    vertical-align: -.12em;
+    background: var(--on);
+    animation: blink 1.06s steps(1) infinite;
+}
+
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Whoever finds a blinking block distracting has usually said so at the
+   operating system, and that setting is the one to honour. */
+@media (prefers-reduced-motion: reduce) {
+    .cursor { animation: none; }
+}
+
+header nav {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    font-family: var(--mono);
+    font-size: 12.5px;
+}
+
+header nav .who { color: var(--quiet); }
+header nav .who::before { content: "@"; color: var(--murmur); }
+
+/* --- The page ---------------------------------------------------------- */
 
 main {
-    max-width: 44rem;
+    max-width: 46rem;
     margin: 0 auto;
-    padding: 2rem clamp(1rem, 5vw, 3rem) 4rem;
+    padding: 2.25rem clamp(1rem, 5vw, 3rem) 3rem;
 }
 
-a { color: var(--link); }
+a { color: var(--on); text-decoration-color: hsl(150 80% 50% / .35); }
+a:hover { text-decoration-color: var(--on); }
 
-h1 { font-size: 1.5rem; margin: 0 0 1.5rem; }
-h2 { font-size: 1.15rem; margin: 0 0 .25rem; }
+/* A thread title. Monospace, because it names a thing rather than saying
+   something — the prose underneath is where the sans-serif starts. */
+h1 {
+    font-family: var(--mono);
+    font-size: clamp(21px, 3.6vw, 27px);
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 0 0 1.5rem;
+    color: var(--on);
+    overflow-wrap: anywhere;
+}
 
-.byline { color: var(--muted); font-size: .85rem; margin: 0 0 .75rem; }
-.empty { color: var(--muted); }
+h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
+
+/* The brackets are the signature of this surface, and they are set HERE
+   rather than in the templates: the text inside them is translated, the
+   brackets are not, and a template that carried them would have to say so in
+   every language. */
+.section-head {
+    margin: 0 0 1.25rem;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--on);
+}
+
+.section-head::before { content: "[ "; }
+.section-head::after { content: " ]"; }
+
+.byline {
+    margin: 0 0 .75rem;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--murmur);
+}
+
+.byline .name, .byline .value { color: var(--quiet); }
+.byline .sep { opacity: .55; }
+
+.empty {
+    padding: 1.25rem;
+    border: 1px dashed var(--edge);
+    border-radius: 3px;
+    color: var(--quiet);
+    font-family: var(--mono);
+    font-size: 13.5px;
+}
+
+/* --- Entries, topics, categories --------------------------------------- */
 
 .entry, .post {
-    padding: 1.25rem 0;
-    border-bottom: 1px solid var(--line);
+    padding: 1.4rem 0;
+    border-bottom: 1px solid var(--edge);
 }
+
+.entry:last-of-type, .post:last-of-type { border-bottom: 0; }
+
+.entry h2 { font-family: var(--mono); font-size: 1.05rem; letter-spacing: -.01em; }
+.entry h2 a { text-decoration: none; }
 
 .topics, .categories { list-style: none; margin: 0; padding: 0; }
 
+/* A category is a card, like the ones on a landing page: a border that carries
+   the edge, a surface that does not. */
 .categories li {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: .15rem 1rem;
-    padding: .9rem 0;
-    border-bottom: 1px solid var(--line);
+    gap: .2rem 1rem;
+    padding: 1rem 1.1rem;
+    margin-bottom: .6rem;
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    background: var(--veil);
+    transition: border-color .16s ease, box-shadow .16s ease;
 }
 
-.categories .name { font-weight: 600; }
-.categories .count { color: var(--muted); font-size: .85rem; }
+.categories li:hover {
+    border-color: hsl(150 50% 32%);
+    box-shadow: 0 0 0 1px hsl(150 60% 40% / .18);
+}
+
+.categories .name {
+    font-family: var(--mono);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+/* `a.name`, nicht `.name`: In derselben Karte steht die Byline, und die
+   benutzt `.name` fuer den Sprecher. Ein loser Selektor setzte das `>`
+   deshalb auch vor ein Datum. */
+.categories a.name::before { content: "> "; color: var(--murmur); }
+
+.categories .count {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--murmur);
+}
+
 .categories .byline { grid-column: 1 / -1; margin: 0; }
 
 .topics li {
     display: flex;
     justify-content: space-between;
     gap: 1rem;
-    padding: .75rem 0;
-    border-bottom: 1px solid var(--line);
+    padding: .8rem .2rem;
+    border-bottom: 1px solid var(--edge);
 }
+
+.topics li a { text-decoration: none; }
+.topics li a::before { content: "> "; color: var(--murmur); }
+.topics .byline { margin: 0; white-space: nowrap; }
+
+/* --- Writing ----------------------------------------------------------- */
 
 .write {
     display: grid;
-    gap: .75rem;
-    margin-top: 2rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--line);
+    gap: .8rem;
+    margin-top: 2.5rem;
+    padding: 1.4rem;
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    background: var(--veil);
 }
 
-.write h2 { margin: 0; }
-.write label { display: grid; gap: .35rem; font-size: .9rem; color: var(--muted); }
+.write h2 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--on);
+}
 
-.write input, .write textarea {
-    font: inherit;
-    color: var(--ink);
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: .5rem;
+.write label {
+    display: grid;
+    gap: .4rem;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--murmur);
+}
+
+.write input, .write textarea, .own textarea {
+    font: 15px/1.6 var(--sans);
+    color: var(--text);
+    background: var(--ground);
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    padding: .6rem .7rem;
     width: 100%;
 }
 
-.write textarea { resize: vertical; }
+.write textarea, .own textarea { resize: vertical; }
+
+/* The focus ring is the green, not the browser's blue: a single accent that
+   also says which field is live. */
+.write input:focus-visible,
+.write textarea:focus-visible,
+.own textarea:focus-visible {
+    outline: none;
+    border-color: hsl(150 60% 40%);
+    box-shadow: 0 0 0 1px hsl(150 70% 45% / .45);
+}
+
+.write input[type="file"] { font-family: var(--mono); font-size: 13px; padding: .5rem; }
 
 .write button {
     justify-self: start;
-    font: inherit;
-    padding: .5rem 1.25rem;
-    border: 1px solid var(--link);
-    border-radius: 4px;
-    background: var(--link);
-    color: var(--paper);
+    font: 600 13px/1 var(--mono);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .7rem 1.4rem;
+    border: 1px solid var(--on);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--on);
     cursor: pointer;
+    transition: background .16s ease, color .16s ease;
 }
+
+.write button::before { content: "$ "; opacity: .6; }
+.write button:hover { background: var(--on); color: var(--ground); }
+.write button:hover::before { opacity: .45; }
+
+/* --- Your own posts ---------------------------------------------------- */
 
 .own {
     display: flex;
     align-items: flex-start;
-    gap: .5rem;
-    margin-top: .75rem;
+    gap: .6rem;
+    margin-top: 1.1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--edge);
 }
 
-.own form { display: grid; gap: .5rem; }
+/* `justify-self`, weil das Formular ein Grid ist: ohne das zieht sich ein
+   Knopf mit zwei Wörtern über die ganze Spalte und sieht aus wie die
+   Hauptsache der Seite. */
+.own form { display: grid; gap: .5rem; justify-items: start; }
+.own form textarea { width: 100%; }
 .own form:first-child { flex: 1; }
 
-.own textarea {
-    font: inherit;
-    color: var(--ink);
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: .5rem;
-    width: 100%;
-    resize: vertical;
-}
-
 .own button {
-    font: inherit;
-    font-size: .85rem;
-    padding: .35rem .9rem;
-    border: 1px solid var(--line);
-    border-radius: 4px;
+    font: 12px/1 var(--mono);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: .5rem .9rem;
+    border: 1px solid var(--edge);
+    border-radius: 3px;
     background: transparent;
-    color: var(--muted);
+    color: var(--murmur);
     cursor: pointer;
 }
 
-.own button.danger { border-color: var(--line); }
-.own button:hover { color: var(--ink); }
+.own button:hover { color: var(--text); border-color: var(--quiet); }
+
+/* Deleting is the one thing here that cannot be taken back, so it is the one
+   control that carries the second signal colour — on hover, not at rest: a
+   button that shouts before it is reached for is just noise. */
+.own button.danger:hover { color: var(--off); border-color: var(--off); }
+
+/* --- Prose ------------------------------------------------------------- */
 
 .body > :first-child { margin-top: 0; }
 .body > :last-child { margin-bottom: 0; }
 
-.body img { max-width: 100%; height: auto; }
+.body img { max-width: 100%; height: auto; border-radius: 3px; }
+
+.body a { overflow-wrap: anywhere; }
 
 .body pre {
     overflow-x: auto;
-    padding: .75rem;
-    background: color-mix(in srgb, var(--ink) 6%, transparent);
-    border-radius: 4px;
+    padding: .85rem 1rem;
+    background: var(--veil);
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 13.5px;
+}
+
+.body code { font-family: var(--mono); font-size: .92em; }
+
+.body :not(pre) > code {
+    padding: .05rem .25rem;
+    border-radius: 3px;
+    background: var(--veil);
+    color: var(--quiet);
 }
 
 .body blockquote {
     margin: 1rem 0;
     padding-left: 1rem;
-    border-left: 3px solid var(--line);
-    color: var(--muted);
+    border-left: 2px solid hsl(150 40% 30%);
+    color: var(--quiet);
 }
+
+.body table { border-collapse: collapse; }
+.body th, .body td { border: 1px solid var(--edge); padding: .4rem .6rem; }
+
+/* --- The foot ---------------------------------------------------------- */
+
+footer {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 1.6rem clamp(1rem, 5vw, 3rem) 3rem;
+    border-top: 1px solid var(--edge);
+    color: var(--murmur);
+    font-size: 13.5px;
+}
+
+footer p { margin: 0; }
