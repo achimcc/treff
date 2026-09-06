@@ -17,7 +17,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 1** — crate, AGPL-3.0, flake, smoke tests (`cd9f1f2`, `068d5d6`) |
 | Done | **Task 2** — configuration: spaces, categories, and the rules that refuse a broken file |
 | Done | **Task 3** — permissions as pure functions |
-| Next | **Task 4** — database: schema, pragmas, migrations |
+| Done | **Task 4** — database: schema, WAL, enforced foreign keys, migrations |
+| Next | **Task 5** — topics and posts: the storage layer |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -102,7 +103,7 @@ matching is exact (no prefix, no case folding); `may_modify` compares the
 `subject`, never the display name — a renamed account keeps its posts, and two
 people with the same name are two people.
 
-## Task 4 · Database: schema, pragmas, migrations
+## Task 4 · Database: schema, pragmas, migrations ✅
 
 **Files:** add `src/db/mod.rs`, `migrations/0001_initial.sql`; `mod db;`
 **Produces:** `Db` (holds the `SqlitePool`), `Db::open(path: &Path)`,
@@ -112,6 +113,18 @@ people with the same name are two people.
 is idempotent; **`journal_mode` reads back as `wal` and `foreign_keys` as
 `1`** on a connection taken from the pool (not on the one that ran the
 migration); a delete of a topic takes its posts with it.
+
+**Measured while doing it:** `foreign_keys(true)` restates a sqlx default.
+Deleting the line leaves the three constraint tests **green** — only
+`foreign_keys(false)` turns them red, and `journal_mode(Delete)` turns the WAL
+test red. Both directions were checked rather than assumed, and the line stays:
+`ON DELETE CASCADE` in the schema depends on it, and a promise that lives in
+someone else's default is not one we made. `foreign_keys` is **per
+connection**, so the test holds four pooled connections at once and asks each
+of them — asking one proves nothing about the rest.
+
+Also: `sqlx` needs the **`macros`** feature for `sqlx::migrate!`, not just
+`migrate` — the plan's `cargo add` line was one feature short.
 
 ## Task 5 · Topics and posts: the storage layer
 

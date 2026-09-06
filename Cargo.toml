@@ -9,6 +9,12 @@ keywords = ["forum", "oidc", "self-hosted", "blog"]
 categories = ["web-programming"]
 
 [dependencies]
+anyhow = "1.0.104"
 serde = { version = "1.0.229", features = ["derive"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 toml = "1.1.5"
+
+[dev-dependencies]
+tempfile = "3.27.0"
