@@ -1,6 +1,7 @@
 //! The database: one SQLite file, opened once at startup and handed around as
 //! a pool.
 
+pub mod attachments;
 pub mod topics;
 
 use sqlx::SqlitePool;

@@ -25,6 +25,16 @@ pub fn render(markdown: &str) -> String {
     ammonia::Builder::default()
         .url_schemes(schemes)
         .link_rel(Some("noopener noreferrer nofollow"))
+        // An `img` is fetched by the browser without anyone deciding to; a
+        // link is followed on purpose. So a picture may only come from this
+        // instance — otherwise the operator of some other host learns the
+        // address and the moment of every reader, which is precisely what a
+        // closed circle is for. The CSP says `img-src 'self'` as well; this is
+        // the lock that does not depend on the browser honouring it.
+        .attribute_filter(|element, attribute, value| match (element, attribute) {
+            ("img", "src") if !value.starts_with('/') => None,
+            _ => Some(value.into()),
+        })
         .clean(&raw)
         .to_string()
 }
@@ -151,5 +161,29 @@ mod tests {
         assert!(html.contains("<code"), "got: {html}");
         assert!(!html.contains("<script>"), "got: {html}");
         assert!(html.contains("&lt;script&gt;"), "got: {html}");
+    }
+}
+
+#[cfg(test)]
+mod attachment_links {
+    use super::*;
+
+    #[test]
+    fn an_image_from_this_instance_survives() {
+        // Attachments are referenced as `/a/<id>`, a RELATIVE url. If the
+        // sanitizer dropped those, every uploaded image would render as a
+        // broken box — and it would look like a storage bug rather than a
+        // sanitizer setting.
+        let html = render("![a picture](/a/7)");
+        assert!(html.contains("src=\"/a/7\""), "got: {html}");
+        assert!(html.contains("alt=\"a picture\""), "got: {html}");
+    }
+
+    #[test]
+    fn an_image_from_somewhere_else_does_not() {
+        // No third party may learn who is reading: the CSP says img-src 'self'
+        // and this is the second lock.
+        let html = render("![tracker](https://elsewhere.example/pixel.png)");
+        assert!(!html.contains("elsewhere.example"), "got: {html}");
     }
 }

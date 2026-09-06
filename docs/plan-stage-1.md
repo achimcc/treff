@@ -27,7 +27,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 9c** — articles mirrored from a directory |
 | Done | **Task 10** — writing: open a topic, reply |
 | Done | **Task 11** — editing and deleting, only your own |
-| Next | **Task 12** — attachments: magic bytes, storage, serving |
+| Done | **Task 12** — attachments: magic bytes, storage, serving |
+| Next | **Task 13** — languages: German and English |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -434,7 +435,7 @@ nobody edits an article through the web. That falls out of `may_modify`
 comparing subjects — no special case was needed, and there is a test that
 pins it.
 
-## Task 12 · Attachments: magic bytes, storage, serving
+## Task 12 · Attachments: magic bytes, storage, serving ✅
 
 **Files:** add `src/media.rs`, `src/db/attachments.rs`; change `src/web/mod.rs`
 **Produces:** `media::detect(&[u8]) -> Option<MediaType>`, `MediaType::mime()`,
@@ -449,6 +450,27 @@ rejected; the size limit is enforced **while reading**, not after; the stored
 name is generated, never taken from the client (no path traversal); `GET /a/:id`
 answers with the detected type, `nosniff`, and only to someone who may read
 the space.
+
+**An upload is a reply with a picture in it.** It becomes a post of its own
+whose body is `![](/a/<id>)`, so the image reaches the page through the same
+renderer and the same sanitizer as everything else, and it follows the
+`reply` right rather than a third one. That also answers the "attachments per
+post" limit the design asks for: one upload is one post, so the count is
+structurally one.
+
+**Two limits, and both are needed**, as the plan said: a hard
+`DefaultBodyLimit` that refuses before anything is read into memory, and the
+per-space `attachment_max_bytes` that gives an answer a person can act on.
+Getting the order wrong showed up immediately — the hard limit fired first and
+answered **400**, so the test asked for 413 and got a bad request.
+
+**A finding from writing these tests, and it is not about attachments:** the
+sanitizer let an `img` from a foreign host through, because `https` is an
+allowed scheme. The CSP says `img-src 'self'`, so a browser would refuse it —
+but then the CSP is the only lock, and an image is fetched without anyone
+deciding to, which tells its host who is reading and when. `markup::render`
+now drops any `img src` that does not start with `/`. A **link** to another
+site is still fine: following one is a decision.
 
 ## Task 13 · Languages: German and English
 

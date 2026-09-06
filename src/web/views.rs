@@ -174,6 +174,18 @@ pub fn topic_page(
                 }
                 button type="submit" { "Post reply" }
             }
+            form class="write" method="post" enctype="multipart/form-data"
+                 action={ "/t/" (topic.id) "/attach" } {
+                label {
+                    "Attach a picture"
+                    input type="file" name="file" accept="image/jpeg,image/png,image/gif,image/webp" required;
+                }
+                label {
+                    "Caption"
+                    input type="text" name="body";
+                }
+                button type="submit" { "Attach" }
+            }
         }
     };
     layout(space, who, &topic.title, body)

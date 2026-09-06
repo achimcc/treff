@@ -32,6 +32,10 @@ pub struct AppState {
     pub db: Db,
     pub oidc: Arc<OidcSettings>,
     pub provider: Option<Arc<crate::auth::oidc::Provider>>,
+    /// Where the database and the attachment files live. Kept because serving
+    /// an attachment means reading a file, and the path must come from here
+    /// rather than from anything a request carries.
+    pub data_dir: std::path::PathBuf,
     cookie_key: Key,
 }
 
@@ -77,6 +81,7 @@ impl AppState {
             db,
             oidc: Arc::new(oidc),
             provider,
+            data_dir: dir.to_path_buf(),
             cookie_key: load_or_create_cookie_key(dir)?,
         })
     }
@@ -230,6 +235,10 @@ fn server_error(what: &str, e: &anyhow::Error) -> Response {
 }
 
 const PAGE_SIZE: i64 = 50;
+
+/// The point at which a request is refused before it is read into memory. Not
+/// the user-facing limit — that one is per space and configurable.
+const HARD_UPLOAD_LIMIT: usize = 32 * 1024 * 1024;
 
 /// The front page of a space.
 ///
@@ -523,6 +532,134 @@ async fn topic_of_post(app: &AppState, space: &str, post_id: i64) -> Option<i64>
     .map(|(id,)| id)
 }
 
+/// An upload becomes a post of its own, whose body is a Markdown image
+/// pointing at `/a/<id>`. That is why there is no "attachments per post"
+/// limit: one upload is one post, so the count is structurally one, and the
+/// picture reaches the page through the same renderer and the same sanitizer
+/// as everything else.
+async fn attach(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(topic_id): axum::extract::Path<i64>,
+    mut multipart: axum::extract::Multipart,
+) -> Response {
+    let topic = match crate::db::topics::load_topic(&app.db, &space.host, topic_id).await {
+        Ok(Some((topic, _))) => topic,
+        Ok(None) => return not_found(),
+        Err(e) => return server_error("cannot load a topic", &e),
+    };
+    let Some(category) = space.category(&topic.category) else {
+        return not_found();
+    };
+    // Uploading is replying: it is the same act with a picture in it.
+    if !crate::authz::may_read(&who, &space) || !crate::authz::may_reply(&who, category) {
+        return forbidden();
+    }
+
+    let mut bytes: Option<Vec<u8>> = None;
+    let mut caption = String::new();
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(field)) => match field.name().unwrap_or_default().to_string().as_str() {
+                "file" => match field.bytes().await {
+                    Ok(b) => bytes = Some(b.to_vec()),
+                    // The hard body limit fires here, before anything is
+                    // written. Its own status is passed through, so "too
+                    // large" does not arrive as "bad request".
+                    Err(e) => return (e.status(), "that file could not be read").into_response(),
+                },
+                "body" => caption = field.text().await.unwrap_or_default(),
+                _ => {}
+            },
+            Ok(None) => break,
+            Err(e) => return (e.status(), "the upload could not be read").into_response(),
+        }
+    }
+
+    let Some(bytes) = bytes else {
+        return bad_request("no file in the upload");
+    };
+    if bytes.len() as u64 > space.attachment_max_bytes {
+        return (StatusCode::PAYLOAD_TOO_LARGE, "that file is too large").into_response();
+    }
+
+    // The allow list, from the bytes themselves. Not the file name, not the
+    // content type the browser announced — the uploader chooses both.
+    let Some(media_type) = crate::media::detect(&bytes) else {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "only JPEG, PNG, GIF and WebP images can be attached",
+        )
+            .into_response();
+    };
+
+    let id = match crate::auth::random_id() {
+        Ok(id) => id,
+        Err(e) => return server_error("cannot name an attachment", &e),
+    };
+    let path = crate::db::attachments::path_of(&app.data_dir, &id, media_type);
+    if let Some(parent) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        return server_error("cannot create the attachment directory", &e.into());
+    }
+    if let Err(e) = std::fs::write(&path, &bytes) {
+        return server_error("cannot store an attachment", &e.into());
+    }
+
+    let caption = caption.trim();
+    let body = if caption.is_empty() {
+        format!("![](/a/{id})")
+    } else {
+        format!("{caption}\n\n![](/a/{id})")
+    };
+
+    let post_id = match crate::db::topics::add_reply(&app.db, topic_id, &body, &who).await {
+        Ok(id) => id,
+        Err(e) => return server_error("cannot attach a picture", &e),
+    };
+    if let Err(e) =
+        crate::db::attachments::record(&app.db, &id, post_id, media_type, bytes.len() as i64).await
+    {
+        return server_error("cannot record an attachment", &e);
+    }
+
+    Redirect::to(&format!("/t/{topic_id}")).into_response()
+}
+
+/// Serves an attachment with the type **we** detected, never one from the
+/// upload, plus `nosniff` so the browser does not reconsider.
+async fn serve_attachment(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    let attachment = match crate::db::attachments::load(&app.db, &space.host, &id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return not_found(),
+        Err(e) => return server_error("cannot load an attachment", &e),
+    };
+
+    let path =
+        crate::db::attachments::path_of(&app.data_dir, &attachment.id, attachment.media_type);
+    match std::fs::read(&path) {
+        Ok(bytes) => (
+            [
+                (header::CONTENT_TYPE, attachment.media_type.mime()),
+                (header::CONTENT_DISPOSITION, "inline"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(e) => server_error("cannot read an attachment", &e.into()),
+    }
+}
+
 async fn stylesheet() -> Response {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
@@ -546,6 +683,15 @@ pub fn router(state: AppState) -> Router {
         .route("/t/{id}/reply", axum::routing::post(reply))
         .route("/p/{id}/edit", axum::routing::post(edit_post))
         .route("/p/{id}/delete", axum::routing::post(delete_post))
+        // Two limits, and both are needed. This one protects memory and is
+        // deliberately far above any sensible picture; the configured
+        // per-space limit below it gives the answer a person can act on.
+        .route(
+            "/t/{id}/attach",
+            axum::routing::post(attach)
+                .layer(axum::extract::DefaultBodyLimit::max(HARD_UPLOAD_LIMIT)),
+        )
+        .route("/a/{id}", get(serve_attachment))
         .route("/assets/style.css", get(stylesheet))
         .route("/auth/login", get(login))
         .layer(middleware::from_fn_with_state(

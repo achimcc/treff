@@ -67,6 +67,15 @@ pub struct Space {
     /// second mechanism for no gain.
     #[serde(default)]
     pub articles: Option<String>,
+    /// The largest attachment this space accepts, in bytes. The design asks
+    /// for it to be configurable; the default is what a photograph from a
+    /// phone weighs.
+    #[serde(default = "default_attachment_bytes")]
+    pub attachment_max_bytes: u64,
+}
+
+fn default_attachment_bytes() -> u64 {
+    8 * 1024 * 1024
 }
 
 impl Space {

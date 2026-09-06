@@ -11,4 +11,5 @@ pub mod authz;
 pub mod config;
 pub mod db;
 pub mod markup;
+pub mod media;
 pub mod web;
