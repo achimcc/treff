@@ -56,17 +56,21 @@ fn date_of(name: &str) -> Option<(String, i64)> {
     Some((date.to_string(), midnight))
 }
 
-/// Front matter between two `---` lines, then the prose. Only `title` is read
-/// here; other keys belong to whatever else consumes these files and are
+/// Front matter between two `---` lines, then the prose. Only the title is
+/// read here; other keys belong to whatever else consumes these files and are
 /// ignored rather than rejected.
-fn split_front_matter(text: &str) -> Option<(String, String)> {
+fn split_front_matter(text: &str, title_key: &str) -> Option<(String, String)> {
     let rest = text.strip_prefix("---")?.trim_start_matches(['\r', '\n']);
     let end = rest.find("\n---")?;
     let (front, body) = rest.split_at(end);
 
+    // The colon is part of the prefix, so `title_key = "title"` does not match
+    // a line reading `titel:`. A prefix match without it would turn a
+    // near-miss into a silent wrong answer.
+    let key = format!("{title_key}:");
     let title = front
         .lines()
-        .find_map(|l| l.strip_prefix("title:"))
+        .find_map(|l| l.strip_prefix(key.as_str()))
         .map(|t| t.trim().trim_matches('"').to_string())
         .filter(|t| !t.is_empty())?;
 
@@ -78,10 +82,10 @@ fn split_front_matter(text: &str) -> Option<(String, String)> {
     Some((title, body))
 }
 
-fn read_article(path: &Path, name: &str) -> Option<Article> {
+fn read_article(path: &Path, name: &str, title_key: &str) -> Option<Article> {
     let (_, published_at) = date_of(name)?;
     let text = std::fs::read_to_string(path).ok()?;
-    let (title, body) = split_front_matter(&text)?;
+    let (title, body) = split_front_matter(&text, title_key)?;
     Some(Article {
         key: name.to_string(),
         title,
@@ -99,6 +103,7 @@ pub async fn mirror(
     space: &str,
     category: &str,
     dir: &Path,
+    title_key: &str,
     today: &str,
 ) -> anyhow::Result<Mirrored> {
     // A missing directory is an error, not an empty blog: a wrong path would
@@ -115,9 +120,10 @@ pub async fn mirror(
         if !name.ends_with(".md") {
             continue;
         }
-        let Some(article) = read_article(&entry.path(), &name) else {
+        let Some(article) = read_article(&entry.path(), &name, title_key) else {
             eprintln!(
-                "treff: skipping {name}: no date in the name, or no title in the front matter"
+                "treff: skipping {name}: no date in the name, or no `{title_key}` \
+                 in the front matter"
             );
             report.skipped += 1;
             continue;
@@ -301,7 +307,7 @@ mod tests {
             &article("The newer one", "Second thing."),
         );
 
-        let report = mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        let report = mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
         assert_eq!(report.mirrored, 2);
@@ -341,7 +347,7 @@ mod tests {
         write(dir.path(), "2026-09-01-a.md", &article("A", "text"));
 
         for _ in 0..3 {
-            mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+            mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
                 .await
                 .expect("mirror");
         }
@@ -363,7 +369,7 @@ mod tests {
             "2026-09-01-a.md",
             &article("Before", "old text"),
         );
-        mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
 
@@ -381,7 +387,7 @@ mod tests {
             .expect("reply");
 
         write(dir.path(), "2026-09-01-a.md", &article("After", "new text"));
-        mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
 
@@ -404,7 +410,7 @@ mod tests {
         let (_d, db) = db().await;
         let dir = tempfile::tempdir().expect("tempdir");
         write(dir.path(), "2026-09-01-a.md", &article("A", "text"));
-        mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
 
@@ -422,7 +428,7 @@ mod tests {
             .expect("reply");
 
         std::fs::remove_file(dir.path().join("2026-09-01-a.md")).expect("remove");
-        let report = mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        let report = mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
         assert_eq!(report.hidden, 1);
@@ -445,7 +451,7 @@ mod tests {
 
         // And when the file comes back, so does everything.
         write(dir.path(), "2026-09-01-a.md", &article("A", "text"));
-        mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
         assert_eq!(titles(&db).await, vec!["A"]);
@@ -467,15 +473,22 @@ mod tests {
             &article("Later", "not yet"),
         );
 
-        mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
         assert_eq!(titles(&db).await, vec!["Now"], "the draft was published");
 
         // No new deploy, no new file: only the day moved on.
-        mirror(&db, "blog.example.org", "notes", dir.path(), "2026-09-20")
-            .await
-            .expect("mirror");
+        mirror(
+            &db,
+            "blog.example.org",
+            "notes",
+            dir.path(),
+            "title",
+            "2026-09-20",
+        )
+        .await
+        .expect("mirror");
         assert_eq!(titles(&db).await, vec!["Later", "Now"]);
     }
 
@@ -499,7 +512,7 @@ mod tests {
             "ignored entirely",
         );
 
-        let report = mirror(&db, "blog.example.org", "notes", dir.path(), TODAY)
+        let report = mirror(&db, "blog.example.org", "notes", dir.path(), "title", TODAY)
             .await
             .expect("mirror");
         assert_eq!(titles(&db).await, vec!["Fine"]);
@@ -521,11 +534,58 @@ mod tests {
                 "blog.example.org",
                 "notes",
                 std::path::Path::new("/nonexistent/articles"),
+                "title",
                 TODAY,
             )
             .await
             .is_err()
         );
+    }
+
+    /// The front matter belongs to whoever writes those files, and its keys
+    /// are in their language. The German newsletter this instance mirrors
+    /// writes `titel:`, and asking it to carry a second, English key as well
+    /// would put the same sentence in two places — the one thing a one-way
+    /// mirror exists to avoid.
+    #[tokio::test]
+    async fn the_key_that_holds_the_title_is_configurable() {
+        let (_d, unter_titel) = db().await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("2026-09-01-neuigkeit.md"),
+            "---\ntitel: Der Titel\nart: hinweis\n---\n\nEin Satz.\n",
+        )
+        .expect("write");
+
+        let report = mirror(
+            &unter_titel,
+            "blog.example.org",
+            "notes",
+            dir.path(),
+            "titel",
+            TODAY,
+        )
+        .await
+        .expect("mirror");
+        assert_eq!(report.mirrored, 1, "the file carries a title under `titel`");
+        assert_eq!(report.skipped, 0);
+        assert_eq!(titles(&unter_titel).await, vec!["Der Titel"]);
+
+        // And the default key still misses it, rather than matching anything
+        // that merely ends in the right letters.
+        let (_d2, unter_title) = db().await;
+        let strict = mirror(
+            &unter_title,
+            "blog.example.org",
+            "notes",
+            dir.path(),
+            "title",
+            TODAY,
+        )
+        .await
+        .expect("mirror");
+        assert_eq!(strict.mirrored, 0);
+        assert_eq!(strict.skipped, 1);
     }
 
     const TODAY: &str = "2026-09-06";

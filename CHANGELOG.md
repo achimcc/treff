@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.4 — 2026-09-06
+
+- **`title_key`** per space: the front matter key that holds an article's
+  title, `title` by default. Found the hard way on the first host to mirror a
+  real directory — a German newsletter writes `titel:`, all fifty files were
+  skipped, and the blog came up empty. An empty blog looks exactly like a blog
+  nobody has written in yet, which is why this needed a configuration option
+  and not a second key in fifty files.
+- The skip message now **names the key it looked for** instead of saying "no
+  title", which is what made that diagnosis take longer than it should have.
+- The unit gives up after **six restarts in five minutes**
+  (`StartLimitBurst`). A unit that restarts forever is never `failed`: on that
+  same host treff had correctly refused to start 78 times over a missing
+  client secret, and `systemctl --failed`, the container status and every
+  check that asks "is it running" all said everything was fine.
+
 ## 0.1.3 — 2026-09-06
 
 - An **empty** client secret file is refused at startup, like a missing one.

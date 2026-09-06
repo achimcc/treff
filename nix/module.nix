@@ -74,6 +74,18 @@ let
           be silent.
         '';
       };
+      titleKey = lib.mkOption {
+        type = lib.types.str;
+        default = "title";
+        example = "titel";
+        description = ''
+          The front matter key that holds an article's title. Those files are
+          written for something else — a newsletter, a static site — and their
+          keys are in their author's language; asking every one of them to
+          carry a second, English key saying the same thing is the duplication
+          a one-way mirror exists to avoid.
+        '';
+      };
       attachmentMaxBytes = lib.mkOption {
         type = lib.types.ints.positive;
         default = 8 * 1024 * 1024;
@@ -96,6 +108,7 @@ let
       read
       ;
     attachment_max_bytes = space.attachmentMaxBytes;
+    title_key = space.titleKey;
     category = map (c: {
       inherit (c)
         slug
@@ -249,6 +262,16 @@ in
         Restart = "on-failure";
         RestartSec = "5s";
       };
+
+      # A UNIT THAT RESTARTS FOREVER IS NEVER `failed`, AND NOTHING SEES IT.
+      # Found on 2026-09-06 on the first host to run this: the client secret
+      # was not reaching the credential, treff refused to start — correctly —
+      # and systemd had restarted it 78 times. `systemctl --failed` was empty,
+      # the container was `active`, and every check that asks whether the
+      # service is running said yes. Six restarts and it gives up, which is
+      # the state monitoring can actually see.
+      startLimitIntervalSec = 300;
+      startLimitBurst = 6;
     };
   };
 }

@@ -11,6 +11,8 @@ groups in their token. No local accounts, no passwords, no open registration.
   **topic list** (a forum).
 - A timeline can be **fed from a directory of Markdown files**, so the text
   that announces a change elsewhere is the same text people comment on here.
+  Those files keep their own front matter; `title_key` says which key holds
+  the title, so a German newsletter writing `titel:` needs no second key.
 
 An empty group list grants nothing, never everything. An unknown `Host` is
 refused rather than mapped to the first space. Missing OIDC settings stop the
@@ -18,9 +20,9 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.1.0** — everything below works and is covered by tests, but it has
-not run in front of real people yet. Search and notifications are the next
-stage.
+Early. **v0.1.4** — everything below works and is covered by tests. It is in
+service on one host since 2026-09-06; nobody but its author has posted in it
+yet. Search and notifications are the next stage.
 
 ## Configuration
 
@@ -35,6 +37,7 @@ title    = "Notes"
 view     = "timeline"
 read     = ["Household", "Friends"]
 articles = "/etc/treff/articles"
+title_key = "title"                     # optional, front matter key of the title
 attachment_max_bytes = 8388608          # optional, this is the default
 
   [[space.category]]

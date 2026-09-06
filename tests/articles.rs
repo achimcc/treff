@@ -48,9 +48,16 @@ async fn a_mirrored_article_is_an_ordinary_page() {
     let db = treff::db::Db::open(&dir.path().join("t.db"))
         .await
         .expect("open");
-    treff::articles::mirror(&db, "blog.example.org", "notes", &articles, "2026-09-06")
-        .await
-        .expect("mirror");
+    treff::articles::mirror(
+        &db,
+        "blog.example.org",
+        "notes",
+        &articles,
+        "title",
+        "2026-09-06",
+    )
+    .await
+    .expect("mirror");
 
     let state = treff::web::AppState::new(
         treff::config::Config::parse(CONFIGURATION).expect("configuration"),

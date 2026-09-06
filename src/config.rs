@@ -72,6 +72,17 @@ pub struct Space {
     /// phone weighs.
     #[serde(default = "default_attachment_bytes")]
     pub attachment_max_bytes: u64,
+    /// The front matter key that holds an article's title. Those files are
+    /// written for something else — a newsletter, a static site — and their
+    /// keys are in their author's language. Making this configurable is
+    /// cheaper than asking every such file to carry a second, English key
+    /// saying the same thing.
+    #[serde(default = "default_title_key")]
+    pub title_key: String,
+}
+
+fn default_title_key() -> String {
+    "title".to_string()
 }
 
 fn default_attachment_bytes() -> u64 {

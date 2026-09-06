@@ -79,6 +79,7 @@ async fn mirror_articles(config: &treff::config::Config, db: &treff::db::Db) -> 
             &space.host,
             &category.slug,
             std::path::Path::new(dir),
+            &space.title_key,
             &today,
         )
         .await?;
