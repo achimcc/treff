@@ -41,7 +41,10 @@ pkgs.testers.runNixOSTest {
         oidc = {
           issuer = "https://auth.example.org/application/o/treff/";
           clientId = "treff";
-          clientSecretFile = "/etc/treff-secret";
+          # The credential form, because that is the one that has to work:
+          # a systemd specifier, resolved at start, with the secret never in a
+          # place the service could read by accident.
+          clientSecretFile = "%d/oidc";
           redirectUri = "https://forum.example.org/auth/callback";
         };
         spaces = [
@@ -86,6 +89,10 @@ pkgs.testers.runNixOSTest {
         ];
       };
 
+      systemd.services.treff.serviceConfig.LoadCredential = [
+        "oidc:/etc/treff-secret"
+      ];
+
       environment.etc."treff-secret".text = "the-client-secret";
       environment.systemPackages = [ pkgs.curl ];
     };
@@ -114,7 +121,18 @@ pkgs.testers.runNixOSTest {
     # THE SECRET IS NOT IN THE UNIT. Only the path to it is.
     machine.fail("systemctl cat treff.service | grep -q the-client-secret")
     machine.fail("systemctl show treff.service | grep -q the-client-secret")
-    machine.succeed("systemctl show -p Environment treff.service | grep -q /etc/treff-secret")
+    # The unit points at a CREDENTIAL, not at a file lying around for the
+    # service to read, and certainly not at the secret. systemd expands %d
+    # before `systemctl show` gets to see it, so the assertion is on the
+    # expanded form — and on the unit actually loading the credential.
+    machine.succeed("systemctl cat treff.service | grep -q 'LoadCredential=oidc:/etc/treff-secret'")
+    machine.succeed(
+        "systemctl show -p Environment treff.service | grep -q '/credentials/treff.service/oidc'"
+    )
+    # And the proof that it works is not a string at all: the service is up,
+    # which it only manages if it could read the secret — treff refuses to
+    # start when the file behind TREFF_OIDC_CLIENT_SECRET_FILE is missing.
+    machine.succeed("systemctl is-active treff.service")
 
     # The generated configuration is what the service reads, and it carries the
     # groups from the module — so a typo would have failed the build.

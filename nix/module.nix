@@ -150,11 +150,22 @@ in
         description = "The client id registered with the provider.";
       };
       clientSecretFile = lib.mkOption {
-        type = lib.types.path;
+        # `str` and not `path`, deliberately. A systemd credential arrives
+        # under `%d`, and the honest way to point at one is
+        # `clientSecretFile = "%d/oidc"` together with
+        # `systemd.services.treff.serviceConfig.LoadCredential`. A `path`
+        # would reject that specifier and push operators towards writing the
+        # secret somewhere world-readable instead — which is exactly what this
+        # option exists to avoid. The VM test uses the credential form.
+        type = lib.types.str;
         description = ''
-          A file holding the client secret. A path, never the secret itself:
-          anything in the unit is world-readable in the store and in
+          Where to read the client secret from. A path, never the secret
+          itself: anything in the unit is readable in the store and in
           `systemctl show`.
+
+          systemd specifiers work, and are the recommended form:
+          `"%d/oidc"` with `LoadCredential = [ "oidc:/path/to/secret" ]` keeps
+          the secret out of the filesystem the service can see.
         '';
       };
       redirectUri = lib.mkOption {

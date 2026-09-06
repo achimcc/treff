@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.2 — 2026-09-06
+
+- `services.treff.oidc.clientSecretFile` is a **string**, not a path, so a
+  systemd specifier works: `"%d/oidc"` together with
+  `LoadCredential = [ "oidc:/path/to/secret" ]`. A `path` rejected that and
+  pushed towards writing the secret somewhere the service can read on its own,
+  which is the opposite of what the option is for. Found while wiring treff
+  into a host where credentials are the only way in.
+- The VM test uses that form now, and asserts the effect rather than the
+  string: systemd expands `%d` before `systemctl show` sees it, and the real
+  proof is that the service is up — it refuses to start when the secret file
+  is missing.
+
 ## 0.1.1 — 2026-09-06
 
 Housekeeping, an hour after 0.1.0. Nothing about the program changed; the tag
