@@ -15,7 +15,8 @@ message, implement the smallest thing that passes, see it green
 | | |
 |---|---|
 | Done | **Task 1** — crate, AGPL-3.0, flake, smoke tests (`cd9f1f2`, `068d5d6`) |
-| Next | **Task 2** — configuration |
+| Done | **Task 2** — configuration: spaces, categories, and the rules that refuse a broken file |
+| Next | **Task 3** — permissions as pure functions |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -44,7 +45,7 @@ the repository has an address (task 16).
 configuration **fails** to start (fail closed — a build that started
 unconfigured would serve a forum with no idea who anyone is).
 
-## Task 2 · Configuration: spaces, categories, groups
+## Task 2 · Configuration: spaces, categories, groups ✅
 
 **Files:** add `src/config.rs`; `src/main.rs` gains `mod config;`
 **Produces:** `Config`, `Space`, `Category`, `View`, `ConfigError`;
@@ -63,6 +64,23 @@ unconfigured would serve a forum with no idea who anyone is).
 - An empty `read`/`post`/`reply` list is accepted and grants nobody (it is
   never read as "everyone").
 - A category slug that is not URL-safe is an error.
+
+**Two departures, both deliberate:**
+
+1. **`deny_unknown_fields` on every struct**, with a test for it. Without it a
+   typo like `psot = ["Writers"]` parses happily, leaves `post` empty, and the
+   category quietly admits nobody. Failing closed is right; failing *silently*
+   is not. The test was checked in both directions — with the attribute
+   removed it fails, so it is a test and not decoration.
+2. **The crate gained `src/lib.rs`.** A binary-only crate makes
+   `clippy --all-targets -- -D warnings` unreachable — everything the tests
+   use is dead code from the binary's point of view — and the integration
+   tests from task 9 onwards need something to call anyway. `src/main.rs`
+   stays a thin front end.
+
+The slug rule is strict on purpose: lower-case ASCII letters, digits and
+hyphens, non-empty. A slug ends up in a URL path, so anything else is either a
+routing bug or an attempt at one.
 
 ## Task 3 · Permissions as pure functions
 

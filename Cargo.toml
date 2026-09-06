@@ -9,3 +9,6 @@ keywords = ["forum", "oidc", "self-hosted", "blog"]
 categories = ["web-programming"]
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+toml = "1.1.5"
