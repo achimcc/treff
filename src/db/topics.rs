@@ -173,6 +173,114 @@ pub async fn category_counts(
     Ok(out)
 }
 
+/// What `delete_post` did, so the layer above can answer accordingly.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Deleted {
+    /// A reply is gone; the topic stands.
+    Post,
+    /// It was the opening post and nobody else had written: the topic went
+    /// with it.
+    Topic,
+    /// The opening post, but other people have replied under it. Removing it
+    /// would remove their words too, and "only your own" means exactly that.
+    HasReplies,
+    /// Not this person's, not in this space, or not there at all — three
+    /// different reasons, one answer, because telling them apart would say
+    /// something about posts the asker may not see.
+    NotYours,
+}
+
+/// Rewrites a post, if it belongs to this person **and** to this space.
+///
+/// Both conditions live in the WHERE clause, not in the caller. A handler that
+/// forgets to check must not be able to write — the query is the place where
+/// "only your own" is actually true, and there is a test that asks the
+/// storage layer directly with no HTTP in the way.
+pub async fn update_post(
+    db: &Db,
+    space: &str,
+    post_id: i64,
+    body: &str,
+    author: &Identity,
+) -> anyhow::Result<bool> {
+    let affected = sqlx::query(
+        "UPDATE posts SET body_markdown = ?, updated_at = ?, edited = 1
+         WHERE id = ? AND author_subject = ?
+           AND topic_id IN (SELECT id FROM topics WHERE space = ? AND hidden = 0)",
+    )
+    .bind(body)
+    .bind(now())
+    .bind(post_id)
+    .bind(&author.subject)
+    .bind(space)
+    .execute(db.pool())
+    .await?
+    .rows_affected();
+    Ok(affected == 1)
+}
+
+pub async fn delete_post(
+    db: &Db,
+    space: &str,
+    post_id: i64,
+    author: &Identity,
+) -> anyhow::Result<Deleted> {
+    let mut tx = db.pool().begin().await?;
+
+    // One query decides ownership, space, and whether this is the opening
+    // post — so the checks cannot drift apart.
+    let Some(row) = sqlx::query(
+        "SELECT p.topic_id AS topic_id,
+                (SELECT min(id) FROM posts WHERE topic_id = p.topic_id) AS first_id
+         FROM posts p JOIN topics t ON t.id = p.topic_id
+         WHERE p.id = ? AND p.author_subject = ? AND t.space = ? AND t.hidden = 0",
+    )
+    .bind(post_id)
+    .bind(&author.subject)
+    .bind(space)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Ok(Deleted::NotYours);
+    };
+
+    let topic_id: i64 = row.get("topic_id");
+    let first_id: i64 = row.get("first_id");
+
+    if first_id == post_id {
+        let (others,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM posts WHERE topic_id = ? AND author_subject != ?")
+                .bind(topic_id)
+                .bind(&author.subject)
+                .fetch_one(&mut *tx)
+                .await?;
+        if others > 0 {
+            return Ok(Deleted::HasReplies);
+        }
+        // The opening post is the topic. With nobody else underneath, taking
+        // it back takes the topic — the cascade only reaches this person's own
+        // posts.
+        sqlx::query("DELETE FROM topics WHERE id = ?")
+            .bind(topic_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        return Ok(Deleted::Topic);
+    }
+
+    sqlx::query("DELETE FROM posts WHERE id = ?")
+        .bind(post_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE topics SET updated_at = ? WHERE id = ?")
+        .bind(now())
+        .bind(topic_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Deleted::Post)
+}
+
 fn topic_from(row: &sqlx::sqlite::SqliteRow) -> Topic {
     Topic {
         id: row.get("id"),

@@ -151,6 +151,19 @@ pub fn topic_page(
                     @if post.edited { " (edited)" }
                 }
                 div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
+                // Only on your own — and the display is not the defence: the
+                // query refuses the same thing again, on its own.
+                @if crate::authz::may_modify(who, &post.author_subject) {
+                    div class="own" {
+                        form method="post" action={ "/p/" (post.id) "/edit" } {
+                            textarea name="body" rows="4" required { (post.body_markdown) }
+                            button type="submit" { "Save" }
+                        }
+                        form method="post" action={ "/p/" (post.id) "/delete" } {
+                            button type="submit" class="danger" { "Delete" }
+                        }
+                    }
+                }
             }
         }
         @if may_reply {

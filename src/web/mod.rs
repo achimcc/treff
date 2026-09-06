@@ -449,6 +449,80 @@ async fn reply(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct EditPost {
+    body: String,
+}
+
+async fn edit_post(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    axum::extract::Form(form): axum::extract::Form<EditPost>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    let body = match checked_body(&form.body) {
+        Ok(b) => b,
+        Err(why) => return bad_request(why),
+    };
+
+    // The permission is enforced by the query. This handler does not look up
+    // the author and compare — it asks for a write that only succeeds if the
+    // post is this person's, in this space.
+    match crate::db::topics::update_post(&app.db, &space.host, id, &body, &who).await {
+        Ok(true) => match topic_of_post(&app, &space.host, id).await {
+            Some(topic) => Redirect::to(&format!("/t/{topic}")).into_response(),
+            None => Redirect::to("/").into_response(),
+        },
+        Ok(false) => forbidden(),
+        Err(e) => server_error("cannot edit a post", &e),
+    }
+}
+
+async fn delete_post(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+
+    let topic = topic_of_post(&app, &space.host, id).await;
+    match crate::db::topics::delete_post(&app.db, &space.host, id, &who).await {
+        Ok(crate::db::topics::Deleted::Post) => match topic {
+            Some(topic) => Redirect::to(&format!("/t/{topic}")).into_response(),
+            None => Redirect::to("/").into_response(),
+        },
+        Ok(crate::db::topics::Deleted::Topic) => Redirect::to("/").into_response(),
+        Ok(crate::db::topics::Deleted::HasReplies) => (
+            StatusCode::CONFLICT,
+            "other people have replied here; deleting this would delete their posts too",
+        )
+            .into_response(),
+        Ok(crate::db::topics::Deleted::NotYours) => forbidden(),
+        Err(e) => server_error("cannot delete a post", &e),
+    }
+}
+
+async fn topic_of_post(app: &AppState, space: &str, post_id: i64) -> Option<i64> {
+    sqlx::query_as::<_, (i64,)>(
+        "SELECT p.topic_id FROM posts p JOIN topics t ON t.id = p.topic_id
+         WHERE p.id = ? AND t.space = ?",
+    )
+    .bind(post_id)
+    .bind(space)
+    .fetch_optional(app.db.pool())
+    .await
+    .ok()
+    .flatten()
+    .map(|(id,)| id)
+}
+
 async fn stylesheet() -> Response {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
@@ -470,6 +544,8 @@ pub fn router(state: AppState) -> Router {
         .route("/t/{id}", get(topic_page))
         .route("/c/{slug}/new", axum::routing::post(open_topic))
         .route("/t/{id}/reply", axum::routing::post(reply))
+        .route("/p/{id}/edit", axum::routing::post(edit_post))
+        .route("/p/{id}/delete", axum::routing::post(delete_post))
         .route("/assets/style.css", get(stylesheet))
         .route("/auth/login", get(login))
         .layer(middleware::from_fn_with_state(

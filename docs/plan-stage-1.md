@@ -26,7 +26,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 9b** — the category overview |
 | Done | **Task 9c** — articles mirrored from a directory |
 | Done | **Task 10** — writing: open a topic, reply |
-| Next | **Task 11** — editing and deleting, only your own |
+| Done | **Task 11** — editing and deleting, only your own |
+| Next | **Task 12** — attachments: magic bytes, storage, serving |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -401,7 +402,7 @@ was implemented and never asserted; `tests/frame.rs` now reads the real
 posting here in someone else's name, so it is the CSRF defence this design
 rests on — together with `form-action 'self'` in the CSP.
 
-## Task 11 · Editing and deleting — only your own
+## Task 11 · Editing and deleting — only your own ✅
 
 **Files:** change `src/web/mod.rs`, `src/db/topics.rs`, `src/web/views.rs`
 **Produces:** `update_post(&Db, post_id, body, &Identity) -> Result<bool>`,
@@ -413,6 +414,25 @@ afterwards; anyone else gets **403** and the text is unchanged; deleting the
 first post of a topic is refused or takes the topic with it (decide once,
 test it); the permission is enforced in the **query**, not only in the
 handler.
+
+**The decision the plan left open, made once:** deleting the **opening post**
+takes the topic with it — the opening post *is* the topic — but only while
+nobody else has written underneath. With someone else's reply hanging on it
+the answer is **409**, because "only your own" has to mean that in both
+directions: deleting yours must not delete theirs.
+
+`Deleted` says which of the four things happened, and three different reasons
+for "no" (not yours, not in this space, not there) share **one** answer —
+telling them apart would say something about posts the asker may not see.
+
+The space is part of both queries. Without it the author of a forum post could
+edit it through the blog's address, and the two audiences would share a back
+door; there is a test that calls the storage layer directly to prove it.
+
+A mirrored article belongs to the subject `treff:article`, which is nobody, so
+nobody edits an article through the web. That falls out of `may_modify`
+comparing subjects — no special case was needed, and there is a test that
+pins it.
 
 ## Task 12 · Attachments: magic bytes, storage, serving
 

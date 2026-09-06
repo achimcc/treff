@@ -123,6 +123,41 @@ h2 { font-size: 1.15rem; margin: 0 0 .25rem; }
     cursor: pointer;
 }
 
+.own {
+    display: flex;
+    align-items: flex-start;
+    gap: .5rem;
+    margin-top: .75rem;
+}
+
+.own form { display: grid; gap: .5rem; }
+.own form:first-child { flex: 1; }
+
+.own textarea {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: .5rem;
+    width: 100%;
+    resize: vertical;
+}
+
+.own button {
+    font: inherit;
+    font-size: .85rem;
+    padding: .35rem .9rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.own button.danger { border-color: var(--line); }
+.own button:hover { color: var(--ink); }
+
 .body > :first-child { margin-top: 0; }
 .body > :last-child { margin-bottom: 0; }
 
