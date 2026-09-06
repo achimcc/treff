@@ -29,7 +29,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 11** — editing and deleting, only your own |
 | Done | **Task 12** — attachments: magic bytes, storage, serving |
 | Done | **Task 13** — languages: German and English |
-| Next | **Task 14** — `treff export`: a backup that survives the snapshot |
+| Done | **Task 14** — `treff export`: a backup that survives the snapshot |
+| Next | **Task 15** — the NixOS module and the VM test |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -487,7 +488,7 @@ the actual point of the task, because a missing translation otherwise shows up
 in a browser. Catalogues are embedded with `include_str!`; after this task no
 user-visible text remains in `views.rs`.
 
-## Task 14 · `treff export` — a backup that survives the snapshot
+## Task 14 · `treff export` — a backup that survives the snapshot ✅
 
 **Files:** add `src/export.rs`; change `src/main.rs`
 **Produces:** `export(db: &Db, target: &Path) -> Result<()>`; the
@@ -501,6 +502,18 @@ self-contained file.
 contains the same rows; exporting **while a write is in flight** produces a
 consistent file; an existing target is not silently overwritten; the exit code
 and message are usable from a maintenance script.
+
+**Done.** `sqlx` 0.9 refuses a dynamically built statement unless the caller
+says out loud that it was audited (`AssertSqlSafe`), which is exactly the right
+place for that sentence: `VACUUM INTO` takes a **literal** and no bound
+parameter, so the path is checked here — for a quote and a null byte — rather
+than made safe by a binding. It comes from the command line, never from a
+request.
+
+The concurrent test writes twenty topics from another task while the export
+runs, then asserts that no topic in the copy is missing its opening post: a
+copy holding half a transaction is the failure that matters, and "it did not
+error" would not have seen it.
 
 ## Task 15 · The NixOS module and the VM test
 

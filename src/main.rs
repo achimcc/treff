@@ -14,6 +14,8 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(r) => r,
         Err(e) => {
@@ -22,13 +24,34 @@ fn main() -> ExitCode {
         }
     };
 
-    match runtime.block_on(serve()) {
+    let result = match arguments.first().map(String::as_str) {
+        Some("export") => match arguments.get(1) {
+            Some(target) => runtime.block_on(export_to(std::path::Path::new(target))),
+            None => Err(anyhow::anyhow!("usage: treff export <file>")),
+        },
+        Some(unknown) => Err(anyhow::anyhow!("unknown command {unknown:?}")),
+        None => runtime.block_on(serve()),
+    };
+
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("treff: {e:#}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// Writes a self-contained copy of the database, for the maintenance window to
+/// call **before** the filesystem snapshot. It opens the same database the
+/// service is using; that is the point, since a backup of a stopped service is
+/// a different and more expensive thing.
+async fn export_to(target: &std::path::Path) -> anyhow::Result<()> {
+    let data_dir = env_path("TREFF_DATA_DIR", "/var/lib/treff");
+    let db = treff::db::Db::open(&data_dir.join("treff.db")).await?;
+    treff::export::export(&db, target).await?;
+    eprintln!("treff: wrote {}", target.display());
+    Ok(())
 }
 
 /// Brings the article directories into the database, once, at startup.

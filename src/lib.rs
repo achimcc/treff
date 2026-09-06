@@ -10,6 +10,7 @@ pub mod auth;
 pub mod authz;
 pub mod config;
 pub mod db;
+pub mod export;
 pub mod i18n;
 pub mod markup;
 pub mod media;
