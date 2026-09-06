@@ -116,6 +116,7 @@ async fn replying_follows_reply_and_not_post() {
         subject: "treff:article".into(),
         name: "treff".into(),
         groups: vec![],
+        email: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -150,6 +151,7 @@ async fn a_reply_from_someone_who_may_not_read_is_refused() {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Household".into()],
+        email: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -184,6 +186,7 @@ async fn a_reply_to_a_topic_in_another_space_is_not_found() {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Household".into()],
+        email: None,
     };
     let id = treff::db::topics::create_topic(
         &db,

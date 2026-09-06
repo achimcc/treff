@@ -365,6 +365,7 @@ mod tests {
             subject: sub.into(),
             name: "N".into(),
             groups: vec![],
+            email: None,
         }
     }
 

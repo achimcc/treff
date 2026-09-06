@@ -28,6 +28,8 @@ fn article_author() -> Identity {
         subject: "treff:article".into(),
         name: "treff".into(),
         groups: Vec::new(),
+        // No address: nobody signs in as this, so there is nobody to notify.
+        email: None,
     }
 }
 
@@ -381,6 +383,7 @@ mod tests {
             subject: "s2".into(),
             name: "Reader".into(),
             groups: vec![],
+            email: None,
         };
         crate::db::topics::add_reply(&db, id, "I have a question", &reader)
             .await
@@ -422,6 +425,7 @@ mod tests {
             subject: "s2".into(),
             name: "Reader".into(),
             groups: vec![],
+            email: None,
         };
         crate::db::topics::add_reply(&db, id, "still here?", &reader)
             .await

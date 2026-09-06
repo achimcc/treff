@@ -80,10 +80,20 @@ pub fn claims_to_identity(
         })
         .unwrap_or_default();
 
+    // A claim that is not a string is not an address. Same rule as the
+    // groups: anything unexpected becomes nothing, never a guess.
+    let email = claims
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(String::from);
+
     Identity {
         subject: subject.to_string(),
         name: name.unwrap_or(subject).to_string(),
         groups,
+        email,
     }
 }
 
@@ -105,13 +115,14 @@ impl Sessions {
         let id = random_id()?;
         let now = crate::db::topics::now();
         sqlx::query(
-            "INSERT INTO sessions (id, subject, name, groups_json, created_at, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, subject, name, groups_json, email, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&who.subject)
         .bind(&who.name)
         .bind(serde_json::to_string(&who.groups)?)
+        .bind(&who.email)
         .bind(now)
         .bind(now + SESSION_SECONDS)
         .execute(db.pool())
@@ -138,6 +149,7 @@ impl Sessions {
             // Unreadable groups mean none. Fail closed even against our own
             // storage.
             groups: serde_json::from_str(&row.get::<String, _>("groups_json")).unwrap_or_default(),
+            email: row.get("email"),
         }))
     }
 
@@ -154,6 +166,31 @@ impl Sessions {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// AN ADDRESS IS OPTIONAL AND IS NOT AN IDENTITY.
+    ///
+    /// Optional, because a provider that sends none is a provider whose people
+    /// get no mail — not one whose people are locked out. And not an identity,
+    /// because `sub` is: an address can be edited at many providers, and
+    /// matching on one would hand an account to whoever claims it next.
+    #[test]
+    fn an_address_is_read_when_there_is_one_and_missed_without_complaint() {
+        let with = claims_to_identity(
+            "sub-1",
+            Some("Ada"),
+            &json!({ "groups": ["Household"], "email": "ada@example.org" }),
+            "groups",
+        );
+        assert_eq!(with.email.as_deref(), Some("ada@example.org"));
+
+        let without = claims_to_identity("sub-1", Some("Ada"), &json!({}), "groups");
+        assert_eq!(without.email, None, "no address is not an error");
+        assert_eq!(without.subject, "sub-1", "and changes nothing else");
+
+        // A claim that is not a string is not an address.
+        let wrong = claims_to_identity("s", None, &json!({ "email": 42 }), "groups");
+        assert_eq!(wrong.email, None);
+    }
 
     #[test]
     fn groups_come_from_the_configured_claim() {
@@ -197,6 +234,39 @@ mod tests {
         assert_eq!(id.name, "sub-9");
     }
 
+    /// Storing an address is not the point — carrying it back out is.
+    #[tokio::test]
+    async fn a_session_carries_the_address_back_out_and_survives_without_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = crate::db::Db::open(&dir.path().join("t.db"))
+            .await
+            .expect("open");
+
+        let with = Identity {
+            subject: "s1".into(),
+            name: "Ada".into(),
+            groups: vec!["Household".into()],
+            email: Some("ada@example.org".into()),
+        };
+        let id = Sessions::create(&db, &with).await.expect("session");
+        let back = Sessions::load(&db, &id).await.expect("load").expect("some");
+        assert_eq!(back.email.as_deref(), Some("ada@example.org"));
+
+        let without = Identity {
+            subject: "s2".into(),
+            name: "Ben".into(),
+            groups: vec!["Household".into()],
+            email: None,
+        };
+        let id2 = Sessions::create(&db, &without).await.expect("session");
+        let back2 = Sessions::load(&db, &id2)
+            .await
+            .expect("load")
+            .expect("some");
+        assert_eq!(back2.email, None, "no address is not a reason to refuse");
+        assert_eq!(back2.groups, vec!["Household"], "and nothing else changes");
+    }
+
     #[tokio::test]
     async fn a_session_round_trips_and_can_be_destroyed() {
         let (_d, db) = test_db().await;
@@ -204,6 +274,7 @@ mod tests {
             subject: "s".into(),
             name: "N".into(),
             groups: vec!["Household".into()],
+            email: None,
         };
 
         let sid = Sessions::create(&db, &who).await.expect("create");
@@ -227,6 +298,7 @@ mod tests {
             subject: "s".into(),
             name: "N".into(),
             groups: vec![],
+            email: None,
         };
         let mut seen = std::collections::HashSet::new();
         for _ in 0..50 {

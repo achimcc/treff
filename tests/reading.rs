@@ -30,6 +30,7 @@ async fn a_timeline_shows_the_posts_themselves() {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Writers".into()],
+        email: None,
     };
     treff::db::topics::create_topic(
         &db,
@@ -64,6 +65,7 @@ async fn a_topic_list_shows_titles_and_not_bodies() {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Household".into()],
+        email: None,
     };
     treff::db::topics::create_topic(
         &db,
@@ -112,6 +114,7 @@ async fn a_topic_from_another_space_is_not_found() {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Writers".into()],
+        email: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -144,6 +147,7 @@ async fn a_topic_page_shows_its_posts_in_order() {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Household".into()],
+        email: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -192,6 +196,7 @@ async fn no_page_carries_a_script_element() {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Household".into()],
+        email: None,
     };
     let id = treff::db::topics::create_topic(
         &db,

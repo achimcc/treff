@@ -12,6 +12,11 @@ pub struct Identity {
     pub subject: String,
     pub name: String,
     pub groups: Vec<String>,
+    /// Where to reach this person, if the provider says. **Optional, and not
+    /// an identity**: it is a delivery detail, it changes, and at many
+    /// providers people can edit it themselves — matching on one would hand an
+    /// account to whoever claims the address next.
+    pub email: Option<String>,
 }
 
 impl Identity {
@@ -51,6 +56,7 @@ mod tests {
             subject: "sub-1".into(),
             name: "Someone".into(),
             groups: groups.iter().map(|g| (*g).to_string()).collect(),
+            email: None,
         }
     }
 
@@ -160,6 +166,7 @@ mod tests {
             subject: "sub-1".into(),
             name: "A Different Name".into(),
             groups: vec![],
+            email: None,
         };
         assert!(may_modify(&renamed, "sub-1"));
 
@@ -167,6 +174,7 @@ mod tests {
             subject: "sub-9".into(),
             name: "Someone".into(),
             groups: vec![],
+            email: None,
         };
         assert!(!may_modify(&namesake, "sub-1"));
     }

@@ -19,8 +19,8 @@ are in `../AGENTS.md`.
 
 | | |
 |---|---|
-| Next | **Task 1** — an address from the token |
-| | **Task 2** — subscriptions: who hears about what |
+| Done | **Task 1** — an address from the token |
+| Next | **Task 2** — subscriptions: who hears about what |
 | | **Task 3** — the outbox, and a sender that survives a restart |
 | | **Task 4** — one-click unsubscribe, without signing in |
 | | **Task 5** — a generic webhook as a second exit |
@@ -35,18 +35,18 @@ are in `../AGENTS.md`.
 Sessions carry a subject, a name and groups. None of those is an address, and
 without one there is nothing to send to.
 
-- [ ] Read the `email` claim alongside `name`, and store it on the session and
+- [x] Read the `email` claim alongside `name`, and store it on the session and
       on the account row. It is **optional**: a provider that does not send one
       is a provider whose users get no mail, not a provider whose users are
       locked out. Reading, writing and signing in must all keep working
       without it.
-- [ ] The claim reaches us the same way the groups do — out of the ID token
+- [x] The claim reaches us the same way the groups do — out of the ID token
       that was verified, not out of `additional_claims()`, which is empty by
       construction (0.2.1 exists because of that).
-- [ ] **An address is not an identity.** Keep matching on `subject`; the
+- [x] **An address is not an identity.** Keep matching on `subject`; the
       address is a delivery detail that may change, and a provider that lets
       people edit it would otherwise hand one account to another person.
-- [ ] The provider must be asked for the scope. `openid profile` does not carry
+- [x] The provider must be asked for the scope. `openid profile` does not carry
       `email`; the scope goes in the authorization request, and the NixOS
       module's example configuration says so.
 
@@ -156,8 +156,19 @@ an edit and a deletion.
 
 ## Waiting for a decision
 
-Nothing. The design settled the shape on 2026-09-02; the order above follows
-its reasoning.
+**Task 5, the webhook target.** ntfy listens on `127.0.0.1:2586` inside
+infra-01 and is reachable only through Caddy, which puts forward-auth in front
+of it — and a webhook from treff has no Authentik session. Three ways out, and
+the choice touches the zone table rather than this repository:
+
+1. a zone edge `treff-01 → infra-01:2586` and ntfy listening on the guest
+   address (narrowest, but a new edge),
+2. a Caddy exception for `POST /<topic>` authenticated by an ntfy token
+   instead of forward-auth,
+3. skip ntfy and let the webhook point at something else entirely.
+
+Mail (tasks 3 and 4) does not depend on this, so it is built first. Noted
+2026-09-06 for whoever runs the instance to decide.
 
 ## What this stage does NOT cover
 

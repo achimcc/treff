@@ -29,6 +29,7 @@ fn author() -> treff::authz::Identity {
         subject: "s1".into(),
         name: "Ada".into(),
         groups: vec!["Household".into()],
+        email: None,
     }
 }
 

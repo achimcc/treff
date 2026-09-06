@@ -1,0 +1,11 @@
+-- An address to send to.
+--
+-- NULLABLE ON PURPOSE. A provider that sends no `email` claim is a provider
+-- whose people get no mail — not one whose people are locked out; reading,
+-- writing and signing in must all keep working without it.
+--
+-- It lives on the session because that is where the rest of the token's
+-- answer lives, and it is refreshed on every sign-in: an address that changed
+-- at the provider is right again the next time somebody signs in, without
+-- anything here having to notice.
+ALTER TABLE sessions ADD COLUMN email TEXT;

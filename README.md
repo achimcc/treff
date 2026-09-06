@@ -108,12 +108,17 @@ service on its own.
 ## Configuring your provider
 
 treff needs a confidential client with the authorization code flow, PKCE, and
-a groups claim in the ID token. Two worked examples:
+a groups claim in the ID token. Since 0.3.0 it also asks for the `email`
+scope: an address is what notifications are sent to. It stays **optional** —
+a provider that sends no address is one whose people get no mail, not one
+whose people are locked out — but the scope has to be offered, or the
+authorization request is refused outright. Two worked examples:
 
 **Authentik** — create an OAuth2/OpenID provider with client type
 *confidential*, one redirect URI **per space**
 (`https://forum.example.org/auth/callback` *and*
-`https://blog.example.org/auth/callback`), and the `openid profile` scopes. The standard `profile` scope already carries
+`https://blog.example.org/auth/callback`), and the `openid profile email`
+scopes. The standard `profile` scope already carries
 `groups`, so `TREFF_OIDC_GROUP_CLAIM=groups` is all treff needs; no property
 mapping to write. The issuer is
 `https://auth.example.org/application/o/<slug>/`.

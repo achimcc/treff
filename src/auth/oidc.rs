@@ -113,6 +113,11 @@ impl Provider {
                 Nonce::new_random,
             )
             .add_scope(Scope::new("profile".to_string()))
+            // `email` is asked for and NOT required. A provider that does not
+            // offer it refuses the request loudly, which is a configuration
+            // problem with a message; a claim that is quietly absent is one
+            // without.
+            .add_scope(Scope::new("email".to_string()))
             .set_pkce_challenge(challenge)
             .set_redirect_uri(std::borrow::Cow::Owned(redirect))
             .url();
@@ -302,6 +307,23 @@ mod tests {
         for wrong in ["", "one.two", "a.b.c.d", "header..sig"] {
             assert!(verified_payload(wrong).is_err(), "{wrong:?} was accepted");
         }
+    }
+
+    /// The address only arrives if it is asked for. `openid profile` does not
+    /// carry `email` at any provider that follows the spec, so a forum that
+    /// wants to send mail has to say so in the authorization request — and a
+    /// provider that refuses the scope refuses it loudly, which is better than
+    /// a claim that is quietly absent.
+    #[tokio::test]
+    async fn the_login_asks_for_an_address() {
+        let server = MockServer::start().await;
+        let provider = provider_at(&server).await;
+        let start = provider.begin_login(REDIRECT).expect("begin");
+        assert!(
+            start.url.contains("email"),
+            "the scope has to be requested: {}",
+            start.url
+        );
     }
 
     #[tokio::test]

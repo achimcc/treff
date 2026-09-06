@@ -98,6 +98,7 @@ pub async fn signed_in(
         subject: subject.into(),
         name: format!("{subject} the tester"),
         groups: groups.iter().map(|g| (*g).to_string()).collect(),
+        email: None,
     };
     let sid = treff::auth::Sessions::create(db, &identity)
         .await

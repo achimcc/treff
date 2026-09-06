@@ -47,6 +47,7 @@ mod tests {
             subject: "s".into(),
             name: "N".into(),
             groups: vec![],
+            email: None,
         }
     }
 

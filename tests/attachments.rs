@@ -61,6 +61,7 @@ async fn a_topic(db: &treff::db::Db) -> i64 {
         subject: "ada".into(),
         name: "Ada".into(),
         groups: vec!["Household".into()],
+        email: None,
     };
     treff::db::topics::create_topic(db, "forum.example.org", "general", "Pictures", "x", &author)
         .await
@@ -266,6 +267,7 @@ async fn uploading_follows_the_reply_right() {
         subject: "treff:article".into(),
         name: "treff".into(),
         groups: vec![],
+        email: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,
