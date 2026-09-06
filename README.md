@@ -18,9 +18,9 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. Everything below works and is covered by tests, but it has not run in
-front of real people yet, and there is no released version. Search and
-notifications are the next stage.
+Early. **v0.1.0** — everything below works and is covered by tests, but it has
+not run in front of real people yet. Search and notifications are the next
+stage.
 
 ## Configuration
 
@@ -123,7 +123,7 @@ With Nix, the flake offers a package and a module:
 
 ```nix
 {
-  inputs.treff.url = "github:you/treff";
+  inputs.treff.url = "github:achimcc/treff";
 
   # in your NixOS configuration
   imports = [ inputs.treff.nixosModules.default ];

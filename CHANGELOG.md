@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — 2026-09-06
 
-The first working shape of stage 1. Not tagged yet — see
-`docs/plan-stage-1.md`, "Waiting for a decision".
+The first working shape of stage 1: everything below is built and covered by
+tests, and none of it has run in front of real people yet. Search and
+notifications are the next stage, and the design ties inviting anyone outside
+the household to that stage.
 
 ### Added
 

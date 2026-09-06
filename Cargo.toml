@@ -7,6 +7,7 @@ description = "A small forum for closed groups, authenticated by your own OIDC p
 readme = "README.md"
 keywords = ["forum", "oidc", "self-hosted", "blog"]
 categories = ["web-programming"]
+repository = "https://github.com/achimcc/treff"
 
 [dependencies]
 ammonia = "4.1.4"

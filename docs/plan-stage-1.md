@@ -584,23 +584,26 @@ sharing a host.
 
 ---
 
-## Waiting for a decision
+## Decided on 2026-09-06
 
-Nothing below is blocked on work; it is blocked on you.
-
-1. **Where the repository goes, and when.** Task 16 ends with making it public
-   and pushing. That needs an account and a name — `github.com/<you>/treff`,
-   or somewhere else entirely — and it is the one step that cannot be undone
-   quietly. Until then `Cargo.toml` keeps no `repository` field, which is
-   itself a small lie by omission on crates.io if it were ever published.
-2. **Whether v0.1.0 is cut now or after stage 2.** The design ties inviting
-   friends to stage 2 (search and notifications), so a v0.1.0 today is a
-   release nobody outside the household would be invited to use. Both are
-   defensible: a tag is a marker, not a promise.
-3. **The five forum categories and their groups.** `films`, `series`,
-   `offtopic`, `wishes`, `server-services` are in the design as slugs; the
-   groups that may post and reply in each are a decision about people, not
-   about code. The deployment repository needs them either way.
+1. **The repository is public**, at `github.com/achimcc/treff`. The design
+   argues for English so that somebody could take this over; a private
+   repository would have spent that effort without its purpose. The history
+   was checked for internal names, addresses and keys before the first push —
+   the examples are `example.org` throughout.
+2. **v0.1.0 is tagged now.** A tag is a marker, not a promise: nobody outside
+   the household is invited before stage 2, and both the README and the
+   changelog say so.
+3. **Four forum categories**, cut by what is being talked about rather than
+   what it is about: `medien` (films and series together, including what
+   should be added), `dienste` (questions and problems with what runs),
+   `wuensche` (what does not exist yet), `offtopic`. Everyone with an account
+   may post and reply in all four — someone with a problem has to be able to
+   report it. Films and series are one category because the same circle talks
+   about both on the same evenings, and two half-empty categories look worse
+   than one alive. **This is worth getting right the first time: topics cannot
+   be moved between categories**, so splitting one later leaves the old
+   threads where they were.
 
 ## Coverage against the design
 
