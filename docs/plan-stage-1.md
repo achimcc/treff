@@ -326,6 +326,11 @@ everything already built keeps working.
   not more trusted for coming from a file.
 - A space **without** an `articles` directory is untouched; nothing mirrors
   into a forum by accident.
+- **A file dated in the future does not appear**, and appears by itself once
+  that day arrives (the test injects "today" rather than waiting). This is
+  what lets an article be written while its subject is still being rolled out.
+  The same limit was added to the other consumer of these files on the same
+  day, so the two channels do not disagree about one text.
 
 ## Task 10 · Writing: open a topic, reply
 

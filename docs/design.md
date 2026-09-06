@@ -164,6 +164,14 @@ the database decides nothing about them and keeps the comments. An article
 whose file disappears stops being listed; its comments are kept, because
 deleting what people wrote is not a side effect a file deletion should have.
 
+**The date in the file name is the publication date.** A file dated in the
+future is a draft and is skipped until its day arrives. This is what lets
+someone write the article while the thing it describes is still being rolled
+out — date it for the day it will be true, and it appears by itself. It also
+keeps treff honest against whatever else consumes the same directory: if
+another channel publishes those files too, both should hold a draft back on
+the same day, or the two disagree about the same text.
+
 ## 5. Scope
 
 **Stage 1 — what makes it usable at all:**
