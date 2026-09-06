@@ -160,9 +160,21 @@ impl Provider {
         let claims =
             id_token.claims(&self.client.id_token_verifier(), &Nonce::new(pending.nonce))?;
 
-        // The claims we need beyond the standard ones (the groups) live in the
-        // additional claims, which reach us as plain JSON.
-        let extra = serde_json::to_value(claims.additional_claims())?;
+        // THE GROUPS ARE READ BACK FROM THE TOKEN THAT WAS JUST VERIFIED,
+        // one line above. `claims.additional_claims()` cannot carry them:
+        // `CoreClient` is `EmptyAdditionalClaims`, so that call returns `{}`
+        // whatever the provider sent. On 2026-09-06 that meant everybody
+        // signed in successfully and was then refused — `groups: []` in the
+        // session, "not for you" on the page — with an Authentik that had the
+        // claim configured correctly and a unit test for
+        // `claims_to_identity` that passed, because it was handed a
+        // hand-written JSON value rather than what this path produces.
+        //
+        // ORDER IS THE SAFETY PROPERTY HERE: signature, issuer, audience and
+        // nonce are checked by `claims()` above; this only re-reads the same
+        // bytes. Moving it before that line would turn a verified token into
+        // an unverified one, and nothing in the type system says so.
+        let extra = verified_payload(&id_token.to_string())?;
         let name = claims
             .name()
             .and_then(|n| n.get(None))
@@ -176,6 +188,30 @@ impl Provider {
             &self.group_claim,
         ))
     }
+}
+
+/// The JWT payload as plain JSON.
+///
+/// Only ever called on a token whose signature has already been checked — see
+/// the comment at the call site. A JWT is three dot-separated base64url
+/// segments; the middle one is the claim set.
+fn verified_payload(jwt: &str) -> anyhow::Result<serde_json::Value> {
+    use base64::Engine as _;
+    let mut parts = jwt.split('.');
+    let (_header, payload, signature) = (
+        parts.next(),
+        parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("the ID token has no payload"))?,
+        parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("the ID token has no signature"))?,
+    );
+    if signature.is_empty() || parts.next().is_some() {
+        anyhow::bail!("the ID token is not a three-part JWT");
+    }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload)?;
+    Ok(serde_json::from_slice(&bytes)?)
 }
 
 #[cfg(test)]
@@ -233,6 +269,41 @@ mod tests {
     /// back to the forum — and the short-lived cookie carrying `state`, the
     /// nonce and the PKCE verifier is set on the blog and never travels
     /// there. The blog could not be entered at all.
+    /// The claim that decides everything must survive the trip out of the
+    /// token. This is the step that was missing: `additional_claims()` on a
+    /// `CoreClient` is empty by construction, so the groups never arrived and
+    /// everyone was refused after a successful sign-in.
+    #[test]
+    fn the_groups_survive_the_trip_out_of_the_token() {
+        use base64::Engine as _;
+        let payload = serde_json::json!({
+            "sub": "df55fb1b",
+            "name": "Achim",
+            "groups": ["Haushalt", "Medien"],
+        });
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&payload).expect("json"));
+        let jwt = format!("aGVhZGVy.{encoded}.c2ln");
+
+        let claims = verified_payload(&jwt).expect("payload");
+        let identity = crate::auth::claims_to_identity(
+            claims["sub"].as_str().expect("sub"),
+            claims["name"].as_str(),
+            &claims,
+            "groups",
+        );
+        assert_eq!(identity.groups, vec!["Haushalt", "Medien"]);
+    }
+
+    #[test]
+    fn something_that_is_not_a_jwt_is_an_error_not_an_empty_claim_set() {
+        // An empty claim set would mean no groups, which reads exactly like a
+        // person who belongs to none — a refusal nobody can explain.
+        for wrong in ["", "one.two", "a.b.c.d", "header..sig"] {
+            assert!(verified_payload(wrong).is_err(), "{wrong:?} was accepted");
+        }
+    }
+
     #[tokio::test]
     async fn each_space_is_sent_back_to_its_own_address() {
         let server = MockServer::start().await;

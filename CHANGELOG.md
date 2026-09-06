@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.1 — 2026-09-06
+
+- **The groups never left the token.** `claims.additional_claims()` on a
+  `CoreClient` is `EmptyAdditionalClaims` — it returns `{}` whatever the
+  provider sent, by construction. So every sign-in succeeded and every page
+  then refused: `groups: []` in the session, *not for you* on the screen, with
+  a correctly configured provider and a passing unit test for
+  `claims_to_identity`, which had been handed a hand-written JSON value rather
+  than what this path actually produces. The claims are now read back out of
+  the ID token that was verified one line above — the same bytes, after
+  signature, issuer, audience and nonce were checked, and the comment says so
+  because the type system cannot.
+- The **third** bug of the same family in one day: a function that is correct
+  and a path that never reaches it. Tested at the seam this time, not on
+  either side of it.
+
 ## 0.2.0 — 2026-09-06
 
 **Nobody could sign in.** Everything below is one bug, found the first time a
