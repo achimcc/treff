@@ -1,5 +1,10 @@
-# Formatting and lints, separately from the flake check: they are fast, and a
-# red one of these should be readable without scrolling through a VM boot.
+# Formatting and lints — through the SAME toolchain as a local check.
+#
+# The first version of this pulled `dtolnay/rust-toolchain@stable`, and it went
+# red on the first push: that rustfmt is a different version from the one in
+# the dev shell, and the two disagree about where to break a line. A CI job
+# that checks with different tools than the developer does not check the same
+# thing. So this goes through the flake as well.
 name: fmt
 
 on:
@@ -12,8 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: cachix/install-nix-action@v27
         with:
-          components: rustfmt, clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - run: nix develop --command cargo fmt --check
+      - run: nix develop --command cargo clippy --all-targets -- -D warnings
