@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3 — 2026-09-06
+
+- An **empty** client secret file is refused at startup, like a missing one.
+  The interesting case is not a wrong path but a credential that arrived
+  carrying nothing — a template rendered from a value nobody filled in.
+  Before this, treff started, looked healthy, and failed only when somebody
+  tried to sign in. Found while wiring it into a host where the secret does
+  not exist yet.
+
 ## 0.1.2 — 2026-09-06
 
 - `services.treff.oidc.clientSecretFile` is a **string**, not a path, so a

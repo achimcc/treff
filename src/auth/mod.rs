@@ -34,10 +34,24 @@ impl OidcSettings {
         Ok(Self {
             issuer: required("TREFF_OIDC_ISSUER")?,
             client_id: required("TREFF_OIDC_CLIENT_ID")?,
-            client_secret: std::fs::read_to_string(&secret_file)
-                .map_err(|e| anyhow::anyhow!("cannot read {secret_file}: {e}"))?
-                .trim()
-                .to_string(),
+            client_secret: {
+                let secret = std::fs::read_to_string(&secret_file)
+                    .map_err(|e| anyhow::anyhow!("cannot read {secret_file}: {e}"))?
+                    .trim()
+                    .to_string();
+                // An EMPTY file is the interesting case, not a missing one. A
+                // secret that was never filled in — a credential that did not
+                // arrive, a template rendered from nothing — otherwise lets
+                // the service start and look healthy, and fails only when
+                // somebody tries to sign in. Refusing here makes the fault
+                // visible where it happened.
+                if secret.is_empty() {
+                    anyhow::bail!(
+                        "{secret_file} is empty; treff will not start without a client secret"
+                    );
+                }
+                secret
+            },
             group_claim: std::env::var("TREFF_OIDC_GROUP_CLAIM")
                 .unwrap_or_else(|_| "groups".to_string()),
         })
@@ -286,6 +300,26 @@ mod tests {
                 ("TREFF_OIDC_ISSUER", Some("https://id.example.org/")),
                 ("TREFF_OIDC_CLIENT_ID", Some("treff")),
                 ("TREFF_OIDC_CLIENT_SECRET_FILE", Some("/nonexistent/secret")),
+            ],
+            || assert!(OidcSettings::from_env().is_err()),
+        );
+    }
+
+    #[test]
+    fn an_empty_secret_file_is_refused_like_a_missing_one() {
+        // The credential arrived but carried nothing. Starting anyway would
+        // mean a service that looks healthy and cannot sign anyone in.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("secret");
+        std::fs::write(&path, "   \n").expect("write");
+        temp_env::with_vars(
+            [
+                ("TREFF_OIDC_ISSUER", Some("https://id.example.org/")),
+                ("TREFF_OIDC_CLIENT_ID", Some("treff")),
+                (
+                    "TREFF_OIDC_CLIENT_SECRET_FILE",
+                    Some(path.to_str().expect("utf-8")),
+                ),
             ],
             || assert!(OidcSettings::from_env().is_err()),
         );
