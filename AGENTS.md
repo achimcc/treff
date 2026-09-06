@@ -30,8 +30,16 @@ Every change goes through it, in this order:
 
 Before finishing a task, also run `nix flake check`.
 
+**Run all four, every time, and read their output.** On 2026-09-06 a commit
+went out with `nix flake check` green and `cargo fmt --check` never run — the
+flake check does not format-check, so nothing caught it until CI did, on the
+first push after the repository went public. Skipping a step because the
+expensive one passed is how the cheap one stops being a step.
+
 **Ask for the result, not the exit code.** `cargo test` with a filter that
-matches nothing exits 0 and reports `0 passed`. Read the number.
+matches nothing exits 0 and reports `0 passed`. Read the number. And beware of
+pipes: `cargo fmt --check | head` reports `head`'s exit code, not the check's —
+the same trap as `nix build … | tail`.
 
 ## Rules that hold everywhere
 

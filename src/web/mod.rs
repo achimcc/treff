@@ -104,9 +104,8 @@ impl AppState {
         if let Some(p) = self.provider.get() {
             return Ok(p.clone());
         }
-        let discovered = Arc::new(
-            crate::auth::oidc::Provider::discover(&self.oidc, &self.redirect_uri).await?,
-        );
+        let discovered =
+            Arc::new(crate::auth::oidc::Provider::discover(&self.oidc, &self.redirect_uri).await?);
         // A race here is harmless: both sides discovered the same provider.
         let _ = self.provider.set(discovered.clone());
         Ok(discovered)
