@@ -1,0 +1,19 @@
+# Formatting and lints, separately from the flake check: they are fast, and a
+# red one of these should be readable without scrolling through a VM boot.
+name: fmt
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings

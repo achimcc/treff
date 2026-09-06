@@ -556,13 +556,24 @@ The module carries four assertions that fail at **build** time: no spaces at
 all, a space without a category, a space nobody may read, and two spaces
 sharing a host.
 
-## Task 16 · Release v0.1.0
+## Task 16 · Release v0.1.0 — steps 1 to 3 done
 
-- `README.md`: a complete `spaces.toml` example, the environment variables, a
+- ✅ `README.md`: a complete `spaces.toml` example, the environment variables, a
   **"Behind a reverse proxy"** section (the `Host` header must be passed
   through, or every request lands in the 403 branch), and a "Configuring your
-  provider" section with **Authentik and Keycloak** as worked examples.
-- `CHANGELOG.md` with `0.1.0` and the scope from `design.md` §5.
+  provider" section with **Authentik and Keycloak** as worked examples. The
+  Keycloak part carries the trap that costs an evening: *Full group path* must
+  be **off**, or the claim reads `/Household` and treff compares exactly.
+- ✅ `CHANGELOG.md`, under **Unreleased** rather than `0.1.0` — the version is
+  a decision, and it is in "Waiting for a decision" above.
+- ✅ CI, which was part of stage 1 all along (design §5, "package, NixOS
+  module, tests, CI") and had quietly never been written: one workflow runs
+  `nix flake check` so CI and a local check cannot drift apart, a second runs
+  `cargo fmt --check` and clippy because a red one of those should be readable
+  without scrolling through a VM boot. Plus `renovate.json` with the Nix
+  manager on, as the design asks for.
+- ⏸ The remaining steps — version, signed tag, making the repository public —
+  wait for a decision.
 - Everything together: `cargo fmt --check`, `cargo clippy --all-targets -- -D
   warnings`, `cargo test`, `nix flake check`. **Read the number of passing
   tests, not the exit code.**
