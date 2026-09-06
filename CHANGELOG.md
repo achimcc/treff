@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1 — 2026-09-06
+
+Housekeeping, an hour after 0.1.0. Nothing about the program changed; the tag
+exists because a tag is not moved once it is pushed.
+
+- The formatting that 0.1.0 was missing. The commit behind that tag went out
+  with `nix flake check` green and `cargo fmt --check` never run, so
+  `cargo fmt --check` fails on v0.1.0.
+- The `fmt` CI job now runs through `nix develop`, so it checks with the same
+  tools a local check uses. On v0.1.0 that job is red.
+
 ## 0.1.0 — 2026-09-06
 
 The first working shape of stage 1: everything below is built and covered by
