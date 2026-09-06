@@ -64,6 +64,15 @@ the same trap as `nix build … | tail`.
 - **Versions are not guessed.** `cargo add <crate>` decides them, `Cargo.lock`
   holds them, the Nix package reads `cargoLock.lockFile`. Where a document
   names another library's API, check it against `cargo doc` before using it.
+- **Test the ROUTE, not the function.** On 2026-09-06 `finish_login` was
+  written, unit tested against a mock provider, and never mounted: the router
+  had `/auth/login` and nothing else, so the provider returned people to
+  `/auth/callback` and treff answered **404**. Nobody could sign in, and the
+  whole suite was green. A function that works and is not reachable is not a
+  feature. Every externally promised address — a redirect URI, a link in a
+  template, a path in the README — needs a test that asks the ROUTER for it,
+  and takes the path from the same constant the code uses rather than
+  spelling it a second time.
 - **Stage files by name.** Never `git add -A`.
 - Commits are **signed**.
 
