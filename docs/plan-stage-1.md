@@ -28,7 +28,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 10** — writing: open a topic, reply |
 | Done | **Task 11** — editing and deleting, only your own |
 | Done | **Task 12** — attachments: magic bytes, storage, serving |
-| Next | **Task 13** — languages: German and English |
+| Done | **Task 13** — languages: German and English |
+| Next | **Task 14** — `treff export`: a backup that survives the snapshot |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -472,7 +473,7 @@ deciding to, which tells its host who is reading and when. `markup::render`
 now drops any `img src` that does not start with `/`. A **link** to another
 site is still fine: following one is a decision.
 
-## Task 13 · Languages: German and English
+## Task 13 · Languages: German and English ✅
 
 **Files:** add `src/i18n.rs`, `i18n/de.toml`, `i18n/en.toml`; change
 `src/web/views.rs`

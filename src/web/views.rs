@@ -7,16 +7,17 @@
 use crate::authz::Identity;
 use crate::config::{Category, Space, View};
 use crate::db::topics::{CategoryCount, Post, Topic};
+use crate::i18n::Lang;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 /// The stylesheet is served as its own route rather than inlined, so that
 /// `style-src 'self'` in the CSP stays true.
 pub const STYLESHEET: &str = include_str!("style.css");
 
-pub fn layout(space: &Space, who: &Identity, title: &str, body: Markup) -> Markup {
+pub fn layout(space: &Space, who: &Identity, lang: Lang, title: &str, body: Markup) -> Markup {
     html! {
         (DOCTYPE)
-        html lang="en" {
+        html lang=(lang.code()) {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
@@ -28,7 +29,7 @@ pub fn layout(space: &Space, who: &Identity, title: &str, body: Markup) -> Marku
                     a class="home" href="/" { (space.title) }
                     nav {
                         span class="who" { (who.name) }
-                        a href="/auth/logout" { "Sign out" }
+                        a href="/auth/logout" { (lang.t("sign_out")) }
                     }
                 }
                 main { (body) }
@@ -44,6 +45,7 @@ pub fn layout(space: &Space, who: &Identity, title: &str, body: Markup) -> Marku
 pub fn category_index(
     space: &Space,
     who: &Identity,
+    lang: Lang,
     rows: &[(&Category, CategoryCount)],
 ) -> Markup {
     let body = html! {
@@ -51,18 +53,21 @@ pub fn category_index(
             @for (category, count) in rows {
                 li {
                     a class="name" href={ "/c/" (category.slug) } { (category.title) }
-                    span class="count" { (count.topics) " topics" }
+                    span class="count" {
+                        @if count.topics == 1 { (lang.t("topic_one")) }
+                        @else { (count.topics) " " (lang.t("topic_many")) }
+                    }
                     span class="byline" {
                         @match count.last_activity {
                             Some(t) => (crate::web::views::day(t)),
-                            None => "no topics yet",
+                            None => (lang.t("no_topics_yet")),
                         }
                     }
                 }
             }
         }
     };
-    layout(space, who, &space.title, body)
+    layout(space, who, lang, &space.title, body)
 }
 
 /// A timestamp as a plain day. No clock: in a forum for a closed circle the
@@ -81,6 +86,7 @@ pub fn day(unix_seconds: i64) -> String {
 pub fn space_page(
     space: &Space,
     who: &Identity,
+    lang: Lang,
     category: Option<&Category>,
     topics: &[(Topic, Option<Post>)],
 ) -> Markup {
@@ -89,7 +95,7 @@ pub fn space_page(
     let may_post = category.is_some_and(|c| crate::authz::may_post(who, c));
     let body = html! {
         @if topics.is_empty() {
-            p class="empty" { "Nothing here yet." }
+            p class="empty" { (lang.t("nothing_here")) }
         }
         @match space.view {
             View::Timeline => {
@@ -117,26 +123,27 @@ pub fn space_page(
         @if let Some(category) = category {
             @if may_post {
                 form class="write" method="post" action={ "/c/" (category.slug) "/new" } {
-                    h2 { "New topic" }
+                    h2 { (lang.t("new_topic")) }
                     label {
-                        "Title"
+                        (lang.t("field_title"))
                         input type="text" name="title" maxlength="200" required;
                     }
                     label {
-                        "Text"
+                        (lang.t("field_text"))
                         textarea name="body" rows="6" required {}
                     }
-                    button type="submit" { "Open topic" }
+                    button type="submit" { (lang.t("open_topic")) }
                 }
             }
         }
     };
-    layout(space, who, &space.title, body)
+    layout(space, who, lang, &space.title, body)
 }
 
 pub fn topic_page(
     space: &Space,
     who: &Identity,
+    lang: Lang,
     category: Option<&Category>,
     topic: &Topic,
     posts: &[Post],
@@ -148,7 +155,7 @@ pub fn topic_page(
             article class="post" {
                 p class="byline" {
                     (post.author_name)
-                    @if post.edited { " (edited)" }
+                    @if post.edited { " (" (lang.t("edited")) ")" }
                 }
                 div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
                 // Only on your own — and the display is not the defence: the
@@ -157,10 +164,10 @@ pub fn topic_page(
                     div class="own" {
                         form method="post" action={ "/p/" (post.id) "/edit" } {
                             textarea name="body" rows="4" required { (post.body_markdown) }
-                            button type="submit" { "Save" }
+                            button type="submit" { (lang.t("save")) }
                         }
                         form method="post" action={ "/p/" (post.id) "/delete" } {
-                            button type="submit" class="danger" { "Delete" }
+                            button type="submit" class="danger" { (lang.t("delete")) }
                         }
                     }
                 }
@@ -169,24 +176,24 @@ pub fn topic_page(
         @if may_reply {
             form class="write" method="post" action={ "/t/" (topic.id) "/reply" } {
                 label {
-                    "Reply"
+                    (lang.t("reply"))
                     textarea name="body" rows="5" required {}
                 }
-                button type="submit" { "Post reply" }
+                button type="submit" { (lang.t("post_reply")) }
             }
             form class="write" method="post" enctype="multipart/form-data"
                  action={ "/t/" (topic.id) "/attach" } {
                 label {
-                    "Attach a picture"
+                    (lang.t("attach_picture"))
                     input type="file" name="file" accept="image/jpeg,image/png,image/gif,image/webp" required;
                 }
                 label {
-                    "Caption"
+                    (lang.t("caption"))
                     input type="text" name="body";
                 }
-                button type="submit" { "Attach" }
+                button type="submit" { (lang.t("attach")) }
             }
         }
     };
-    layout(space, who, &topic.title, body)
+    layout(space, who, lang, &topic.title, body)
 }

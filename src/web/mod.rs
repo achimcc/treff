@@ -250,6 +250,7 @@ async fn space_index(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
     CurrentUser(who): CurrentUser,
+    lang: crate::i18n::Lang,
 ) -> Response {
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
@@ -260,7 +261,7 @@ async fn space_index(
             let Some(category) = space.categories.first() else {
                 return not_found();
             };
-            render_space(&app, &space, &who, &category.slug.clone()).await
+            render_space(&app, &space, &who, lang, &category.slug.clone()).await
         }
         crate::config::View::Topics => {
             let slugs: Vec<String> = space.categories.iter().map(|c| c.slug.clone()).collect();
@@ -276,7 +277,7 @@ async fn space_index(
                 .iter()
                 .map(|c| (c, counts.get(&c.slug).cloned().unwrap_or_default()))
                 .collect();
-            crate::web::views::category_index(&space, &who, &rows).into_response()
+            crate::web::views::category_index(&space, &who, lang, &rows).into_response()
         }
     }
 }
@@ -285,15 +286,22 @@ async fn space_category(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
     CurrentUser(who): CurrentUser,
+    lang: crate::i18n::Lang,
     axum::extract::Path(slug): axum::extract::Path<String>,
 ) -> Response {
     if space.category(&slug).is_none() {
         return not_found();
     }
-    render_space(&app, &space, &who, &slug).await
+    render_space(&app, &space, &who, lang, &slug).await
 }
 
-async fn render_space(app: &AppState, space: &Space, who: &Identity, slug: &str) -> Response {
+async fn render_space(
+    app: &AppState,
+    space: &Space,
+    who: &Identity,
+    lang: crate::i18n::Lang,
+    slug: &str,
+) -> Response {
     if !crate::authz::may_read(who, space) {
         return forbidden();
     }
@@ -320,13 +328,14 @@ async fn render_space(app: &AppState, space: &Space, who: &Identity, slug: &str)
         rows.push((topic, first));
     }
 
-    crate::web::views::space_page(space, who, space.category(slug), &rows).into_response()
+    crate::web::views::space_page(space, who, lang, space.category(slug), &rows).into_response()
 }
 
 async fn topic_page(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
     CurrentUser(who): CurrentUser,
+    lang: crate::i18n::Lang,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> Response {
     if !crate::authz::may_read(&who, &space) {
@@ -338,7 +347,8 @@ async fn topic_page(
         Ok(None) => not_found(),
         Ok(Some((topic, posts))) => {
             let category = space.category(&topic.category);
-            crate::web::views::topic_page(&space, &who, category, &topic, &posts).into_response()
+            crate::web::views::topic_page(&space, &who, lang, category, &topic, &posts)
+                .into_response()
         }
         Err(e) => server_error("cannot load a topic", &e),
     }

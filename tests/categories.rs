@@ -106,9 +106,12 @@ async fn the_overview_counts_topics_and_not_posts() {
             .expect("response"),
     )
     .await;
-    // Exact, not "contains a 1 somewhere": a page is full of ones. The
-    // wording itself goes away in task 13, the number does not.
-    assert!(html.contains("1 topics"), "wrong or missing count: {html}");
+    // Exact, not "contains a 1 somewhere": a page is full of ones.
+    assert!(html.contains("1 topic"), "wrong or missing count: {html}");
+    assert!(
+        !html.contains("1 topics"),
+        "one topic is not plural: {html}"
+    );
 }
 
 #[tokio::test]
@@ -185,6 +188,46 @@ async fn a_timeline_still_goes_straight_to_its_entries() {
         html.contains("<strong>world</strong>"),
         "the blog front page stopped showing its entries: {html}"
     );
+}
+
+#[tokio::test]
+async fn the_page_speaks_the_language_the_browser_asked_for() {
+    let (dir, db, app) = setup_with_db().await;
+    treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "Eine Frage",
+        "x",
+        &author(),
+    )
+    .await
+    .expect("topic");
+    let cookie = signed_in(&db, dir.path(), "reader", &["Household"]).await;
+
+    let german = Request::builder()
+        .uri("/")
+        .header("host", "forum.example.org")
+        .header("cookie", &cookie)
+        .header("accept-language", "de-DE,de;q=0.9")
+        .body(Body::empty())
+        .expect("request");
+    let html = body_of(app.clone().oneshot(german).await.expect("response")).await;
+    assert!(html.contains("lang=\"de\""), "{html}");
+    assert!(html.contains("1 Thema"), "{html}");
+    assert!(html.contains("Abmelden"), "{html}");
+
+    let english = Request::builder()
+        .uri("/")
+        .header("host", "forum.example.org")
+        .header("cookie", &cookie)
+        .header("accept-language", "en-GB,en")
+        .body(Body::empty())
+        .expect("request");
+    let html = body_of(app.oneshot(english).await.expect("response")).await;
+    assert!(html.contains("lang=\"en\""), "{html}");
+    assert!(html.contains("1 topic"), "{html}");
+    assert!(html.contains("Sign out"), "{html}");
 }
 
 #[tokio::test]

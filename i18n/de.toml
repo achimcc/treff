@@ -1,0 +1,20 @@
+# Die Oberflaeche auf Deutsch. Jeder Schluessel hier steht auch in en.toml;
+# ein Test faellt, wenn die beiden auseinanderlaufen.
+
+sign_out       = "Abmelden"
+nothing_here   = "Hier ist noch nichts."
+new_topic      = "Neues Thema"
+field_title    = "Titel"
+field_text     = "Text"
+open_topic     = "Thema eroeffnen"
+reply          = "Antwort"
+post_reply     = "Antwort abschicken"
+attach_picture = "Bild anhaengen"
+caption        = "Bildunterschrift"
+attach         = "Anhaengen"
+save           = "Speichern"
+delete         = "Loeschen"
+edited         = "bearbeitet"
+topic_one      = "1 Thema"
+topic_many     = "Themen"
+no_topics_yet  = "noch keine Themen"

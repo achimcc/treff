@@ -1,0 +1,20 @@
+# The interface in English. Every key here exists in de.toml as well; a test
+# fails if the two drift apart.
+
+sign_out       = "Sign out"
+nothing_here   = "Nothing here yet."
+new_topic      = "New topic"
+field_title    = "Title"
+field_text     = "Text"
+open_topic     = "Open topic"
+reply          = "Reply"
+post_reply     = "Post reply"
+attach_picture = "Attach a picture"
+caption        = "Caption"
+attach         = "Attach"
+save           = "Save"
+delete         = "Delete"
+edited         = "edited"
+topic_one      = "1 topic"
+topic_many     = "topics"
+no_topics_yet  = "no topics yet"
