@@ -19,7 +19,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 3** — permissions as pure functions |
 | Done | **Task 4** — database: schema, WAL, enforced foreign keys, migrations |
 | Done | **Task 5** — topics and posts: storage, ordering, space isolation |
-| Next | **Task 6** — rendering and sanitizing Markdown |
+| Done | **Task 6** — Markdown rendered and sanitized |
+| Next | **Task 7** — sign-in: OIDC, session, sign-out |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -154,7 +155,7 @@ is nothing to roll back. The rollback path has no cheap trigger (the second
 statement is an UPDATE that cannot fail), so it is left untested rather than
 fake-tested.
 
-## Task 6 · Rendering and sanitizing Markdown
+## Task 6 · Rendering and sanitizing Markdown ✅
 
 **Files:** add `src/markup.rs`; `mod markup;`
 **Produces:** `render(markdown: &str) -> String`, returning **sanitized** HTML.
@@ -164,6 +165,19 @@ the attack, not the function: `<script>`, `javascript:` and `data:` URLs, an
 `onerror=` attribute, a raw HTML block, a nested/obfuscated form of each — all
 must come out inert. Ordinary Markdown (emphasis, lists, code, links,
 autolinks) must survive.
+
+**Measured, not assumed:** with the sanitizer removed and comrak set to
+`render.r#unsafe = true`, nine of the twelve tests go red — they describe the
+attack and they can see it. `comrak` 0.54 spells the field `render.r#unsafe`,
+not `render.unsafe_`.
+
+**Two things the first draft of these tests got wrong**, both worth keeping in
+mind for the attachment tests later: searching the output for the string
+`"javascript:"` gives a false positive, because one disguise never becomes a
+link at all and stays as visible escaped text — harmless, but it matches. And
+ammonia does not delete a link with a forbidden scheme, it empties the
+attribute (`href=""`), so "no `href=` at all" is the wrong assertion too. What
+the test now checks is every attribute VALUE in the output.
 
 ## Task 7 · Sign-in: OIDC, session, sign-out
 

@@ -9,7 +9,9 @@ keywords = ["forum", "oidc", "self-hosted", "blog"]
 categories = ["web-programming"]
 
 [dependencies]
+ammonia = "4.1.4"
 anyhow = "1.0.104"
+comrak = "0.54.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 thiserror = "2.0.20"
