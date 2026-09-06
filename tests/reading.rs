@@ -77,8 +77,10 @@ async fn a_topic_list_shows_titles_and_not_bodies() {
     .expect("topic");
 
     let cookie = signed_in(&db, dir.path(), "reader", &["Friends"]).await;
+    // The topic list lives under its category; the front page of a forum
+    // lists the categories (task 9b).
     let response = app
-        .oneshot(get("forum.example.org", "/", &cookie))
+        .oneshot(get("forum.example.org", "/c/general", &cookie))
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);

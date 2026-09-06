@@ -23,8 +23,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 7** — sign-in: settings, claims, sessions, and the OIDC flow |
 | Done | **Task 8** — the web frame: host to space, sign-in gate, security headers |
 | Done | **Task 9** — reading: timeline, topic list, topic page |
-| Next | **Task 9b** — the category overview |
-| Then | **Task 9c** — articles mirrored from a directory |
+| Done | **Task 9b** — the category overview |
+| Next | **Task 9c** — articles mirrored from a directory |
 | Then | **Task 10** — writing: open a topic, reply |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
@@ -277,7 +277,7 @@ a `topics` space; someone without the reading group gets **403**; a topic from
 the blog is **404** through the forum's address; the page contains **no
 `<script`** element at all.
 
-## Task 9b · The category overview
+## Task 9b · The category overview ✅
 
 **Files:** change `src/web/views.rs`, `src/web/mod.rs`
 **Produces:** `views::category_index`; `GET /` on a `topics` space lists the
@@ -294,6 +294,23 @@ activity; a category the reader may not `read` — that is, none, since `read`
 is per space — still never appears through another space's address; a
 `timeline` space keeps going straight to its entries, because a blog with one
 category has nothing to choose from; an empty category is listed, not hidden.
+
+**Done.** `category_counts` answers in one query rather than one per category,
+with the space in the condition — two spaces may use the same slug, and
+counting across them would put the blog's activity on the forum's front page
+(there is a test for exactly that). Categories are listed in the order of the
+configuration, not of the query: whoever wrote the file decided what comes
+first. Counting **topics, not posts** — otherwise one busy thread makes a
+category look busy.
+
+Two things I got wrong on the way and corrected: a hand-rolled date routine
+(leap years included) where `time` was already in the tree for the cookies,
+and an assertion that searched the page for `"1 "` — a page is full of ones,
+so it proved nothing. It now looks for the rendered count.
+
+The existing test for the topic list moved from `/` to `/c/general`, because
+that is where the list now lives. That change of behaviour is the point of
+this task, not a casualty of it.
 
 ## Task 9c · Articles mirrored from a directory
 

@@ -231,16 +231,45 @@ fn server_error(what: &str, e: &anyhow::Error) -> Response {
 
 const PAGE_SIZE: i64 = 50;
 
-/// The front page of a space: its first category.
+/// The front page of a space.
+///
+/// A timeline goes straight to its entries — a blog with one category has
+/// nothing to choose from, and a page in between would only stand between the
+/// reader and the text. A forum lists its categories instead of jumping into
+/// whichever one the configuration happens to name first.
 async fn space_index(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
     CurrentUser(who): CurrentUser,
 ) -> Response {
-    let Some(category) = space.categories.first() else {
-        return not_found();
-    };
-    render_space(&app, &space, &who, &category.slug.clone()).await
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+
+    match space.view {
+        crate::config::View::Timeline => {
+            let Some(category) = space.categories.first() else {
+                return not_found();
+            };
+            render_space(&app, &space, &who, &category.slug.clone()).await
+        }
+        crate::config::View::Topics => {
+            let slugs: Vec<String> = space.categories.iter().map(|c| c.slug.clone()).collect();
+            let counts =
+                match crate::db::topics::category_counts(&app.db, &space.host, &slugs).await {
+                    Ok(c) => c,
+                    Err(e) => return server_error("cannot count categories", &e),
+                };
+            // In the order of the configuration, not of the query: the person
+            // who wrote the file decided what comes first.
+            let rows: Vec<_> = space
+                .categories
+                .iter()
+                .map(|c| (c, counts.get(&c.slug).cloned().unwrap_or_default()))
+                .collect();
+            crate::web::views::category_index(&space, &who, &rows).into_response()
+        }
+    }
 }
 
 async fn space_category(

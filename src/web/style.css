@@ -67,7 +67,19 @@ h2 { font-size: 1.15rem; margin: 0 0 .25rem; }
     border-bottom: 1px solid var(--line);
 }
 
-.topics { list-style: none; margin: 0; padding: 0; }
+.topics, .categories { list-style: none; margin: 0; padding: 0; }
+
+.categories li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: .15rem 1rem;
+    padding: .9rem 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.categories .name { font-weight: 600; }
+.categories .count { color: var(--muted); font-size: .85rem; }
+.categories .byline { grid-column: 1 / -1; margin: 0; }
 
 .topics li {
     display: flex;

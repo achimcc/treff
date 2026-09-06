@@ -129,6 +129,50 @@ pub async fn add_reply(
     Ok(id)
 }
 
+/// What a category overview shows about one category.
+#[derive(Debug, Clone, Default)]
+pub struct CategoryCount {
+    pub topics: i64,
+    /// `None` for a category nobody has written in yet — which is listed all
+    /// the same, because a hidden category is one nobody ever visits.
+    pub last_activity: Option<i64>,
+}
+
+/// Counts per category, in one query rather than one per category.
+///
+/// The space is part of the condition: two spaces may use the same slug, and
+/// counting across them would put the blog's activity on the forum's front
+/// page.
+pub async fn category_counts(
+    db: &Db,
+    space: &str,
+    slugs: &[String],
+) -> anyhow::Result<std::collections::HashMap<String, CategoryCount>> {
+    // Every configured category appears in the result, including the empty
+    // ones; the query only fills in what it finds.
+    let mut out: std::collections::HashMap<String, CategoryCount> = slugs
+        .iter()
+        .map(|s| (s.clone(), CategoryCount::default()))
+        .collect();
+
+    let rows = sqlx::query(
+        "SELECT category, count(*) AS n, max(updated_at) AS last
+         FROM topics WHERE space = ? GROUP BY category",
+    )
+    .bind(space)
+    .fetch_all(db.pool())
+    .await?;
+
+    for row in &rows {
+        let slug: String = row.get("category");
+        if let Some(entry) = out.get_mut(&slug) {
+            entry.topics = row.get("n");
+            entry.last_activity = row.get("last");
+        }
+    }
+    Ok(out)
+}
+
 fn topic_from(row: &sqlx::sqlite::SqliteRow) -> Topic {
     Topic {
         id: row.get("id"),

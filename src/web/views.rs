@@ -5,8 +5,8 @@
 //! through the sanitizer in [`crate::markup`]. There is no third door.
 
 use crate::authz::Identity;
-use crate::config::{Space, View};
-use crate::db::topics::{Post, Topic};
+use crate::config::{Category, Space, View};
+use crate::db::topics::{CategoryCount, Post, Topic};
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 /// The stylesheet is served as its own route rather than inlined, so that
@@ -35,6 +35,44 @@ pub fn layout(space: &Space, who: &Identity, title: &str, body: Markup) -> Marku
             }
         }
     }
+}
+
+/// The front page of a space with more than one category: what there is, and
+/// what has happened lately. Every configured category is listed, including
+/// the empty ones — a category that is hidden until someone writes in it is
+/// one nobody ever writes in.
+pub fn category_index(
+    space: &Space,
+    who: &Identity,
+    rows: &[(&Category, CategoryCount)],
+) -> Markup {
+    let body = html! {
+        ul class="categories" {
+            @for (category, count) in rows {
+                li {
+                    a class="name" href={ "/c/" (category.slug) } { (category.title) }
+                    span class="count" { (count.topics) " topics" }
+                    span class="byline" {
+                        @match count.last_activity {
+                            Some(t) => (crate::web::views::day(t)),
+                            None => "no topics yet",
+                        }
+                    }
+                }
+            }
+        }
+    };
+    layout(space, who, &space.title, body)
+}
+
+/// A timestamp as a plain day. No clock: in a forum for a closed circle the
+/// hour is noise, and a date needs no time-zone argument. Hand-rolling this
+/// would mean hand-rolling leap years, so it goes through `time`, which is in
+/// the tree anyway for the cookies.
+pub fn day(unix_seconds: i64) -> String {
+    time::OffsetDateTime::from_unix_timestamp(unix_seconds)
+        .map(|t| t.date().to_string())
+        .unwrap_or_else(|_| String::from("unknown"))
 }
 
 /// A space, rendered the way it is configured: a timeline shows the posts

@@ -31,6 +31,12 @@ read  = ["Household", "Friends"]
   title = "General"
   post  = ["Household", "Friends"]
   reply = ["Household", "Friends"]
+
+  [[space.category]]
+  slug  = "offtopic"
+  title = "Off topic"
+  post  = ["Household", "Friends"]
+  reply = ["Household", "Friends"]
 "#;
 
 /// A router backed by a fresh database in a temporary directory. The directory
