@@ -5,6 +5,7 @@
 //! the integration tests drive the router directly, and a binary-only crate
 //! has nothing for them to call.
 
+pub mod auth;
 pub mod authz;
 pub mod config;
 pub mod db;

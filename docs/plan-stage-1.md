@@ -20,7 +20,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 4** — database: schema, WAL, enforced foreign keys, migrations |
 | Done | **Task 5** — topics and posts: storage, ordering, space isolation |
 | Done | **Task 6** — Markdown rendered and sanitized |
-| Next | **Task 7** — sign-in: OIDC, session, sign-out |
+| Done | **Task 7** — sign-in: settings, claims, sessions, and the OIDC flow |
+| Next | **Task 8** — the web frame: host to space, sign-in gate, security headers |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -179,7 +180,7 @@ ammonia does not delete a link with a forbidden scheme, it empties the
 attribute (`href=""`), so "no `href=` at all" is the wrong assertion too. What
 the test now checks is every attribute VALUE in the output.
 
-## Task 7 · Sign-in: OIDC, session, sign-out
+## Task 7 · Sign-in: OIDC, session, sign-out ✅
 
 **Files:** add `src/auth/mod.rs`, `src/auth/oidc.rs`; `mod auth;`
 **Consumes:** `Identity`, `Db`.
@@ -200,6 +201,28 @@ a claim that is a string rather than an array is rejected rather than
 guessed at; `create`/`load`/`destroy` round-trip, and a destroyed session
 loads as `None`; the discovery and token exchange are tested against a mock
 HTTP server, so the suite never needs a real provider.
+
+**Checking the API names at the source paid off twice.** `rand` 0.10 has
+`rngs::SysRng` with the `TryRng` trait, not `OsRng` with `RngCore` as the plan
+assumed. And `openidconnect` 4 makes the endpoint markers part of the client
+type, so storing a configured client means naming all six of them in a type
+alias. A third one only the mock server could tell us: **discovery fetches the
+JWKS in the same call**, so a stub that answers only
+`/.well-known/openid-configuration` fails with a 404 that reads like a wrong
+URL.
+
+**Deliberately not tested:** the ID token signature and nonce check. That is
+the library's job, and imitating it with home-made fixtures would test the
+library rather than this code. What is tested is what we decide — and the
+`state` check runs **before** the provider is contacted at all. The test for
+it leaves the token endpoint unmocked on purpose: if that order ever flipped,
+the test would fail on a connection error instead of on its assertion.
+
+**Beyond the plan:** session identifiers come from the system CSPRNG and a
+failure to get randomness is an error rather than a weaker fallback — the
+identifier *is* the credential. A session whose stored groups cannot be parsed
+loads with **no** groups, so failing closed holds even against our own
+storage.
 
 ## Task 8 · The web frame: host→space, sign-in gate, security headers
 
