@@ -30,7 +30,8 @@ message, implement the smallest thing that passes, see it green
 | Done | **Task 12** — attachments: magic bytes, storage, serving |
 | Done | **Task 13** — languages: German and English |
 | Done | **Task 14** — `treff export`: a backup that survives the snapshot |
-| Next | **Task 15** — the NixOS module and the VM test |
+| Done | **Task 15** — the NixOS module and the VM test |
+| Next | **Task 16** — release v0.1.0 (see "Waiting for a decision") |
 | Public | not yet; the repository goes public with task 16, so the first
 impression is a finished thing and not three commits without a README |
 
@@ -515,7 +516,7 @@ runs, then asserts that no topic in the copy is missing its opening post: a
 copy holding half a transaction is the failure that matters, and "it did not
 error" would not have seen it.
 
-## Task 15 · The NixOS module and the VM test
+## Task 15 · The NixOS module and the VM test ✅
 
 **Files:** add `nix/module.nix`, `nix/test.nix`; change `flake.nix`
 **Produces:** `nixosModules.default` with
@@ -529,6 +530,31 @@ fails the build instead of becoming a silent category nobody may enter.
 its port; the secret arrives **without** being in the store or in the unit
 file; an unknown `Host` is refused; the data directory and its owner are
 created; a restart keeps sessions (they are in the database, not in memory).
+
+**Done, and the VM test earned its keep before it was even green.** Writing it
+found a real design fault: `serve()` discovered the identity provider at
+startup, so a provider that is slow to come up after a power cut left treff
+dead — the machine would sit there with a service that refuses to start
+because a neighbour was late. Discovery now happens on **first sign-in** and a
+failure is not remembered, so a provider that was merely slow recovers without
+a restart. Nothing is opened by that: without a provider nobody signs in, and
+every page needs a session. The VM test pins exactly this — the service runs,
+`/` redirects, and `/auth/login` answers **503** in a VM that has no provider
+at all.
+
+**Checked in both directions:** with `TREFF_SABOTAGE = "the-client-secret"`
+added to the unit's environment, the test fails with *"command `systemctl cat
+treff.service | grep -q the-client-secret` unexpectedly succeeded"*. The
+assertion that matters most is the one that can see its own violation.
+
+The test also pins two things that only a real machine shows: the **cookie key
+survives a restart** (a key made up per start would sign everyone out although
+their sessions are in the database), and `treff export` runs against the live
+database of the running service and writes a file with something in it.
+
+The module carries four assertions that fail at **build** time: no spaces at
+all, a space without a category, a space nobody may read, and two spaces
+sharing a host.
 
 ## Task 16 · Release v0.1.0
 
@@ -546,6 +572,24 @@ created; a restart keeps sessions (they are in the database, not in memory).
   then pulls this tag as a flake input.
 
 ---
+
+## Waiting for a decision
+
+Nothing below is blocked on work; it is blocked on you.
+
+1. **Where the repository goes, and when.** Task 16 ends with making it public
+   and pushing. That needs an account and a name — `github.com/<you>/treff`,
+   or somewhere else entirely — and it is the one step that cannot be undone
+   quietly. Until then `Cargo.toml` keeps no `repository` field, which is
+   itself a small lie by omission on crates.io if it were ever published.
+2. **Whether v0.1.0 is cut now or after stage 2.** The design ties inviting
+   friends to stage 2 (search and notifications), so a v0.1.0 today is a
+   release nobody outside the household would be invited to use. Both are
+   defensible: a tag is a marker, not a promise.
+3. **The five forum categories and their groups.** `films`, `series`,
+   `offtopic`, `wishes`, `server-services` are in the design as slugs; the
+   groups that may post and reply in each are a decision about people, not
+   about code. The deployment repository needs them either way.
 
 ## Coverage against the design
 

@@ -40,6 +40,22 @@
         };
       });
 
-      checks = forAll (pkgs: { package = self.packages.${pkgs.system}.default; });
+      nixosModules.default = ./nix/module.nix;
+
+      checks = forAll (
+        pkgs:
+        {
+          package = self.packages.${pkgs.system}.default;
+        }
+        # The VM test needs a machine of the same architecture to boot, so it
+        # is only offered where that is the case.
+        // nixpkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.isLinux) {
+          vm = import ./nix/test.nix {
+            inherit pkgs;
+            module = self.nixosModules.default;
+            package = self.packages.${pkgs.system}.default;
+          };
+        }
+      );
     };
 }

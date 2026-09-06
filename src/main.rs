@@ -6,7 +6,6 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Arc;
 
 fn main() -> ExitCode {
     if std::env::args().any(|a| a == "--version") {
@@ -112,12 +111,12 @@ async fn serve() -> anyhow::Result<()> {
         anyhow::anyhow!("TREFF_OIDC_REDIRECT_URI is not set; the provider needs a way back")
     })?;
 
-    // Discovery happens once, here: a provider that cannot be reached at
-    // startup is a reason not to serve, not something to discover per request
-    // and fail at halfway through a sign-in.
-    let provider = treff::auth::oidc::Provider::discover(&oidc, &redirect_uri).await?;
-
-    let state = treff::web::AppState::new(config, db, oidc, Some(Arc::new(provider)), &data_dir)?;
+    // The provider is discovered on first use, not here. Discovering at
+    // startup turned a slow identity provider into a dead forum: after a power
+    // cut the two come up in whatever order they come up in. Nothing is opened
+    // by that — without a provider nobody signs in, and every page needs a
+    // session.
+    let state = treff::web::AppState::new(config, db, oidc, &redirect_uri, &data_dir)?;
     let app = treff::web::router(state);
 
     let listen = std::env::var("TREFF_LISTEN").unwrap_or_else(|_| "127.0.0.1:8080".to_string());

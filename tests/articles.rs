@@ -61,7 +61,7 @@ async fn a_mirrored_article_is_an_ordinary_page() {
             client_secret: "t".into(),
             group_claim: "groups".into(),
         },
-        None,
+        "https://example.org/auth/callback",
         dir.path(),
     )
     .expect("state");

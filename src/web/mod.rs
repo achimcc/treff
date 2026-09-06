@@ -31,7 +31,17 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub db: Db,
     pub oidc: Arc<OidcSettings>,
-    pub provider: Option<Arc<crate::auth::oidc::Provider>>,
+    /// Where the provider sends people back to. Needed to build the client,
+    /// and only known to whoever runs the instance.
+    pub redirect_uri: Arc<str>,
+    /// The discovered provider, found on first use rather than at startup.
+    ///
+    /// Discovering at startup made a slow identity provider into a dead
+    /// forum: after a power cut the two come up in whatever order they come
+    /// up in, and a service that gives up because a neighbour was late is
+    /// worse than one that waits. Nothing is opened by this — without a
+    /// provider nobody can sign in, and every page needs a session.
+    provider: Arc<tokio::sync::OnceCell<Arc<crate::auth::oidc::Provider>>>,
     /// Where the database and the attachment files live. Kept because serving
     /// an attachment means reading a file, and the path must come from here
     /// rather than from anything a request carries.
@@ -73,17 +83,33 @@ impl AppState {
         config: Config,
         db: Db,
         oidc: OidcSettings,
-        provider: Option<Arc<crate::auth::oidc::Provider>>,
+        redirect_uri: &str,
         dir: &Path,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             config: Arc::new(config),
             db,
             oidc: Arc::new(oidc),
-            provider,
+            redirect_uri: Arc::from(redirect_uri),
+            provider: Arc::new(tokio::sync::OnceCell::new()),
             data_dir: dir.to_path_buf(),
             cookie_key: load_or_create_cookie_key(dir)?,
         })
+    }
+
+    /// The provider, discovered once and kept. A failure is not remembered:
+    /// the next sign-in tries again, which is what makes a provider that was
+    /// merely slow recoverable without a restart.
+    pub async fn provider(&self) -> anyhow::Result<Arc<crate::auth::oidc::Provider>> {
+        if let Some(p) = self.provider.get() {
+            return Ok(p.clone());
+        }
+        let discovered = Arc::new(
+            crate::auth::oidc::Provider::discover(&self.oidc, &self.redirect_uri).await?,
+        );
+        // A race here is harmless: both sides discovered the same provider.
+        let _ = self.provider.set(discovered.clone());
+        Ok(discovered)
     }
 }
 
@@ -162,14 +188,18 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
 }
 
 async fn login(State(app): State<AppState>) -> Response {
-    let Some(provider) = app.provider.clone() else {
-        // In this build there is no provider to send anyone to. Saying so is
-        // the honest answer; redirecting to ourselves would be a loop.
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "the identity provider is not configured",
-        )
-            .into_response();
+    let provider = match app.provider().await {
+        Ok(p) => p,
+        Err(e) => {
+            // Saying so is the honest answer; redirecting to ourselves would
+            // be a loop, and pretending to be signed in would be worse.
+            tracing_error("the identity provider could not be reached", &e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the identity provider cannot be reached right now",
+            )
+                .into_response();
+        }
     };
 
     match provider.begin_login() {

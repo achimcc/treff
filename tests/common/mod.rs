@@ -57,9 +57,10 @@ pub async fn setup_with_db() -> (tempfile::TempDir, treff::db::Db, axum::Router)
     // No `AppState::for_tests` in the library: a constructor carrying a fixed
     // cookie key would ship inside the binary, and Cargo no longer allows the
     // usual dodge of a `testing` feature enabled through a self dev-dependency.
-    // The tests build the state from the public pieces instead. `provider:
-    // None` is what makes the suite independent of a reachable identity
-    // provider.
+    // The tests build the state from the public pieces instead. The issuer
+    // points nowhere, which is what keeps the suite free of a reachable
+    // identity provider: discovery is attempted on first sign-in and fails
+    // there, not here.
     let state = treff::web::AppState::new(
         Config::parse(CONFIGURATION).expect("configuration"),
         db.clone(),
@@ -69,7 +70,7 @@ pub async fn setup_with_db() -> (tempfile::TempDir, treff::db::Db, axum::Router)
             client_secret: "test".into(),
             group_claim: "groups".into(),
         },
-        None,
+        "https://example.org/auth/callback",
         dir.path(),
     )
     .expect("state");

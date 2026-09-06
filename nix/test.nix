@@ -1,0 +1,150 @@
+# A NixOS VM test. It proves the things that only a real machine can show:
+# that the unit comes up, that the secret is NOT in it, and that the generated
+# configuration is what the service actually reads.
+{
+  pkgs,
+  module,
+  package,
+}:
+let
+  articles = pkgs.runCommand "treff-articles" { } ''
+    mkdir -p $out
+    cat > $out/2020-01-01-hello.md <<'EOF'
+    ---
+    title: Hello from a file
+    kind: note
+    ---
+
+    This article was **never** typed into a browser.
+    EOF
+    cat > $out/2999-01-01-later.md <<'EOF'
+    ---
+    title: Not yet
+    ---
+
+    Dated in the future, so it is a draft.
+    EOF
+  '';
+in
+pkgs.testers.runNixOSTest {
+  name = "treff";
+
+  nodes.machine =
+    { ... }:
+    {
+      imports = [ module ];
+
+      services.treff = {
+        enable = true;
+        inherit package;
+        listen = "127.0.0.1:8080";
+        oidc = {
+          issuer = "https://auth.example.org/application/o/treff/";
+          clientId = "treff";
+          clientSecretFile = "/etc/treff-secret";
+          redirectUri = "https://forum.example.org/auth/callback";
+        };
+        spaces = [
+          {
+            host = "blog.example.org";
+            title = "Notes";
+            view = "timeline";
+            read = [
+              "Household"
+              "Friends"
+            ];
+            inherit articles;
+            category = [
+              {
+                slug = "notes";
+                title = "Notes";
+                post = [ ];
+                reply = [
+                  "Household"
+                  "Friends"
+                ];
+              }
+            ];
+          }
+          {
+            host = "forum.example.org";
+            title = "Treff";
+            view = "topics";
+            read = [
+              "Household"
+              "Friends"
+            ];
+            category = [
+              {
+                slug = "general";
+                title = "General";
+                post = [ "Household" ];
+                reply = [ "Household" ];
+              }
+            ];
+          }
+        ];
+      };
+
+      environment.etc."treff-secret".text = "the-client-secret";
+      environment.systemPackages = [ pkgs.curl ];
+    };
+
+  testScript = ''
+    machine.wait_for_unit("treff.service")
+    machine.wait_for_open_port(8080)
+
+    def code(host, path="/"):
+        return machine.succeed(
+            f"curl -s -o /dev/null -w '%{{http_code}}' -H 'Host: {host}' http://127.0.0.1:8080{path}"
+        )
+
+    # An unknown host is refused. The separation between two audiences holds
+    # on a real machine too, not only in the unit tests.
+    assert code("evil.example.org") == "403", "an unknown host was served"
+
+    # A known host without a session goes to the sign-in.
+    assert code("blog.example.org") == "303", "a known host did not redirect"
+
+    # The provider does not exist in this VM, and that is the point: the
+    # service still runs, and the sign-in says so instead of the machine
+    # sitting there dead after a restart in which the provider was late.
+    assert code("blog.example.org", "/auth/login") == "503", "login did not report the outage"
+
+    # THE SECRET IS NOT IN THE UNIT. Only the path to it is.
+    machine.fail("systemctl cat treff.service | grep -q the-client-secret")
+    machine.fail("systemctl show treff.service | grep -q the-client-secret")
+    machine.succeed("systemctl show -p Environment treff.service | grep -q /etc/treff-secret")
+
+    # The generated configuration is what the service reads, and it carries the
+    # groups from the module — so a typo would have failed the build.
+    config_path = machine.succeed(
+        "systemctl show -p Environment treff.service | tr ' ' '\\n' | grep TREFF_CONFIG | cut -d= -f2-"
+    ).strip()
+    machine.succeed(f"grep -q Household {config_path}")
+    machine.succeed(f"grep -q 'view = \"timeline\"' {config_path}")
+
+    # The articles arrived from the store directory, and the one dated in the
+    # future did not.
+    journal = machine.succeed("journalctl -u treff.service --no-pager")
+    assert "1 articles" in journal, f"the article was not mirrored: {journal}"
+
+    # And the state that must survive a restart does. The cookie key is
+    # generated once; if it were made up per start, every restart would sign
+    # everyone out although their sessions are still in the database.
+    key = machine.succeed("sha256sum /var/lib/treff/cookie.key").split()[0]
+    machine.succeed("systemctl restart treff.service")
+    machine.wait_for_open_port(8080)
+    assert machine.succeed("sha256sum /var/lib/treff/cookie.key").split()[0] == key, (
+        "the cookie key changed across a restart"
+    )
+    machine.succeed("test -f /var/lib/treff/treff.db")
+
+    # The export runs against the live database and writes a file that stands
+    # on its own — this is what the maintenance window calls before a snapshot.
+    machine.succeed("systemd-run --pipe --wait --property=DynamicUser=no "
+                    "--setenv=TREFF_DATA_DIR=/var/lib/treff "
+                    "${package}/bin/treff export /tmp/backup.db")
+    machine.succeed("test -s /tmp/backup.db")
+  '';
+}
