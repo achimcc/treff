@@ -83,9 +83,21 @@ impl Hook {
 
 impl Transport for Hook {
     async fn deliver(&self, message: &Message) -> anyhow::Result<()> {
+        // DER BEITRAGSTEXT GEHT NICHT MIT, und das ist keine Sparsamkeit.
+        //
+        // Der Webhook ist der Kanal dessen, der die Anlage betreibt — und der
+        // hat hier ausdruecklich KEINE Sonderrechte: „Jeder darf nur sein
+        // eigenes bearbeiten und loeschen, auch die Verwaltung nicht fremdes"
+        // (design.md §5). Ein Push, der jeden fremden Beitrag im Wortlaut aufs
+        // Telefon legt, hebelt das praktisch aus: Man liest mit, ohne das
+        // Forum zu oeffnen, und niemand sieht es.
+        //
+        // Was bleibt, ist das Signal: WER hat WO geschrieben, und ein Link
+        // dorthin. Der Titel eines Themas ist fuer den Kreis ohnehin sichtbar;
+        // der Text bleibt, wo alle ihn unter denselben Bedingungen lesen.
         let mut body = serde_json::json!({
-            "title": format!("{}: {}", message.space_title, message.topic_title),
-            "message": format!("{}: {}", message.author, message.body),
+            "title": message.space_title,
+            "message": format!("{} hat in \"{}\" geschrieben", message.author, message.topic_title),
             "click": message.link,
         });
         if let Some(topic) = &self.settings.topic {

@@ -77,9 +77,9 @@ pub async fn create_topic(
     .await?
     .get(0);
 
-    sqlx::query(
+    let post_id: i64 = sqlx::query(
         "INSERT INTO posts (topic_id, body_markdown, author_subject, author_name, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
     )
     .bind(id)
     .bind(body)
@@ -87,8 +87,9 @@ pub async fn create_topic(
     .bind(&author.name)
     .bind(t)
     .bind(t)
-    .execute(&mut *tx)
-    .await?;
+    .fetch_one(&mut *tx)
+    .await?
+    .get(0);
 
     // WRITING SUBSCRIBES YOU, and it happens in THIS transaction.
     //
@@ -98,6 +99,11 @@ pub async fn create_topic(
     // exists while its subscription does not — after a crash, forever, and
     // silently.
     crate::db::subscriptions::follow_in(&mut tx, &author.subject, id).await?;
+
+    // EIN NEUES THEMA IST AUCH EIN EREIGNIS. Per Mail geht dabei nichts raus —
+    // der einzige Abonnent ist, wer es geschrieben hat —, aber der Betreiber
+    // will wissen, dass eines aufgemacht wurde.
+    crate::db::outbox::queue_webhook(&mut tx, space, id, post_id, &author.subject).await?;
 
     tx.commit().await?;
     Ok(id)

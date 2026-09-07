@@ -177,7 +177,10 @@ async fn a_reply_reaches_the_mail_server() {
     // and that is the point of keeping them apart.
     let offen = treff::db::outbox::due(&db, 10).await.expect("due");
     assert!(!offen.iter().any(|o| o.kanal == "mail"), "{offen:?}");
-    assert_eq!(offen.iter().filter(|o| o.kanal == "webhook").count(), 1);
+    // ZWEI Webhook-Zeilen: eine fuer das eroeffnete Thema, eine fuer die
+    // Antwort. Der Betreiber will beides wissen; per Mail geht fuer das
+    // Thema nichts raus, weil es ausser dem Autor keinen Abonnenten hatte.
+    assert_eq!(offen.iter().filter(|o| o.kanal == "webhook").count(), 2);
     drop(dir);
 }
 
@@ -390,7 +393,18 @@ async fn a_reply_reaches_the_webhook_once() {
     );
     assert!(received.contains("\"topic\":\"treff\""), "{received}");
     assert!(received.contains("Who had the projector?"), "{received}");
-    assert!(received.contains("It is at my place."), "{received}");
+
+    // AND THE POST ITSELF DOES NOT TRAVEL. The webhook is the operator's
+    // channel, and the operator has no special rights here — a push carrying
+    // every stranger's words to a telephone would quietly grant some.
+    assert!(
+        !received.contains("It is at my place."),
+        "the text belongs in the forum, not in a push: {received}"
+    );
+    assert!(
+        received.contains("hat in"),
+        "but who wrote where does travel: {received}"
+    );
     assert!(
         received.contains("https://forum.example.org/t/"),
         "{received}"

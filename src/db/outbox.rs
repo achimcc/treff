@@ -88,6 +88,34 @@ pub async fn queue_for_followers(
     Ok(result.rows_affected())
 }
 
+/// One webhook for an event that has no subscribers yet — a new topic.
+///
+/// Separate from `queue_for_followers` because there is nothing to fan out to:
+/// the only subscriber is the person who just wrote it, and nobody is ever
+/// notified about their own post. The operator's channel still wants to know.
+pub async fn queue_webhook(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    space: &str,
+    topic_id: i64,
+    post_id: i64,
+    writer: &str,
+) -> anyhow::Result<()> {
+    let now = crate::db::topics::now();
+    sqlx::query(
+        "INSERT INTO outbox (subject, topic_id, post_id, space, created_at, next_try_at, kanal)
+         VALUES (?, ?, ?, ?, ?, ?, 'webhook')",
+    )
+    .bind(writer)
+    .bind(topic_id)
+    .bind(post_id)
+    .bind(space)
+    .bind(now)
+    .bind(now)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// What is owed and due now, oldest first.
 pub async fn due(db: &Db, limit: i64) -> anyhow::Result<Vec<Owed>> {
     use sqlx::Row;
@@ -217,13 +245,48 @@ mod tests {
             "ben wrote it, so only ada is owed a mail: {owed:?}"
         );
 
-        // And exactly ONE webhook, however many people follow: what is behind
+        // ONE WEBHOOK PER EVENT, however many people follow: what is behind
         // it fans out on its own, and one notification per subscriber would be
         // a stack of identical messages on one telephone.
+        //
+        // Two here, because there were two events — the topic was opened and
+        // then answered. The operator wants to know about both.
+        assert_eq!(
+            owed.iter().filter(|o| o.kanal == "webhook").count(),
+            2,
+            "{owed:?}"
+        );
+    }
+
+    /// A NEW TOPIC IS AN EVENT TOO, and until 2026-09-07 it was not: the
+    /// queue was only filled on a reply. For mail that followed — a fresh
+    /// topic has no subscribers but its author, and the author is never
+    /// notified. For the operator's channel it was simply a gap: whoever runs
+    /// this wants to know that a topic was opened, and nothing said so.
+    #[tokio::test]
+    async fn opening_a_topic_owes_a_webhook_and_no_mail() {
+        let (_d, db) = db().await;
+        crate::db::topics::create_topic(
+            &db,
+            "forum.example.org",
+            "general",
+            "New",
+            "B",
+            &who("ada"),
+        )
+        .await
+        .expect("topic");
+
+        let owed = due(&db, 100).await.expect("due");
         assert_eq!(
             owed.iter().filter(|o| o.kanal == "webhook").count(),
             1,
-            "{owed:?}"
+            "one webhook for the new topic: {owed:?}"
+        );
+        assert_eq!(
+            owed.iter().filter(|o| o.kanal == "mail").count(),
+            0,
+            "and no mail: the only subscriber is the person who wrote it"
         );
     }
 

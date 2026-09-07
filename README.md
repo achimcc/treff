@@ -23,7 +23,7 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.3.1** — everything below works and is covered by tests. It is in
+Early. **v0.3.2** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06; nobody but its author has posted in it
 yet. Search and notifications are the next stage.
 

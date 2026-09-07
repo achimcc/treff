@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.2 — 2026-09-07
+
+- **A new topic notifies too.** The queue was only filled on a reply. For mail
+  that followed — a fresh topic has no subscribers but its author, and nobody
+  is notified about their own post — but for the operator's channel it was a
+  gap: whoever runs the instance wants to know that a topic was opened, and
+  nothing said so.
+- **The webhook no longer carries the post itself**, only who wrote where and
+  a link. It is the operator's channel, and the operator has deliberately no
+  special rights here: *everyone may edit and delete their own, and nobody
+  else's — including whoever runs the instance.* A push carrying every
+  stranger's words to a telephone hands out some of those rights quietly —
+  you read along without opening the forum and without anybody noticing. The
+  title of a topic is visible to the circle anyway; the text stays where
+  everyone reads it under the same conditions.
+
 ## 0.3.1 — 2026-09-07
 
 - **A webhook as a second exit**: one `POST` per post — not one per
