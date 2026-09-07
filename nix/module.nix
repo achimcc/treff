@@ -168,6 +168,62 @@ in
       description = "The addresses this instance serves.";
     };
 
+    mail = {
+      # NO `enable`. The host decides: set it and mail goes out, leave it and
+      # nobody is notified of anything. A second switch would only be a second
+      # thing to forget.
+      host = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "mail.example.org";
+        description = ''
+          The SMTP server notifications go out over. Without it treff still
+          runs and simply notifies nobody — mail is optional, not half-built.
+        '';
+      };
+      port = lib.mkOption {
+        type = lib.types.port;
+        default = 587;
+        description = "Submission port. 587 with STARTTLS is the default for a reason.";
+      };
+      username = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "The mailbox to authenticate as, if the server wants one.";
+      };
+      passwordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "%d/smtp";
+        description = ''
+          A **path**, never the password itself — the same rule as
+          `oidc.clientSecretFile`, for the same reason: a value in the
+          environment stands in `/proc/<pid>/environ` and in every
+          `systemctl show`. A string rather than a path, so a systemd
+          specifier works with `LoadCredential`.
+        '';
+      };
+      from = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "treff@example.org";
+        description = ''
+          The envelope sender, and where a reply to a notification goes. A
+          real mailbox: people do reply to notifications, and a bounce into
+          nowhere is a conversation nobody sees.
+        '';
+      };
+      starttls = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Off is for a mail server on localhost and nothing else. treff
+          refuses to start with a password and no TLS — sending credentials
+          in the clear is not a configuration, it is an accident.
+        '';
+      };
+    };
+
     oidc = {
       issuer = lib.mkOption {
         type = lib.types.str;
@@ -219,6 +275,19 @@ in
         message = "a treff space with an empty `read` list could be entered by nobody.";
       }
       {
+        # A host without a sender is a mail nobody can answer and many servers
+        # refuse outright. Caught here rather than at the first notification,
+        # which is hours later and in a journal nobody is reading.
+        assertion = (cfg.mail.host == null) == (cfg.mail.from == null);
+        message = "services.treff.mail needs `host` and `from` together, or neither.";
+      }
+      {
+        assertion = !(cfg.mail.passwordFile != null && !cfg.mail.starttls);
+        message =
+          "services.treff.mail has a password and no STARTTLS. treff refuses to start that "
+          + "way, so the build refuses first.";
+      }
+      {
         # Two spaces with the same host would make which one answers a matter
         # of order. treff refuses it too; failing here means failing at build
         # time.
@@ -242,6 +311,24 @@ in
         # The PATH to the secret. The secret itself never appears here.
         TREFF_OIDC_CLIENT_SECRET_FILE = toString cfg.oidc.clientSecretFile;
         TREFF_OIDC_GROUP_CLAIM = cfg.oidc.groupClaim;
+      }
+      // lib.optionalAttrs (cfg.mail.host != null) {
+        TREFF_SMTP_HOST = cfg.mail.host;
+        TREFF_SMTP_PORT = toString cfg.mail.port;
+        TREFF_SMTP_FROM = cfg.mail.from;
+        TREFF_SMTP_STARTTLS = if cfg.mail.starttls then "1" else "0";
+      }
+      // lib.optionalAttrs (cfg.mail.username != null) {
+        TREFF_SMTP_USERNAME = cfg.mail.username;
+      }
+      // lib.optionalAttrs (cfg.mail.passwordFile != null) {
+        # INDEPENDENT OF `host`, and that is not an oversight. On a host where
+        # the mail server's name is itself a secret, `host`, `username` and
+        # `from` arrive through an `EnvironmentFile` at runtime and cannot be
+        # known at build time — but the password is still a path, and a path
+        # is what this option is. Tying it to `host` would force that operator
+        # to put the name in the store to get the password out of it.
+        TREFF_SMTP_PASSWORD_FILE = cfg.mail.passwordFile;
       };
 
       serviceConfig = {

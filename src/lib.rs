@@ -14,4 +14,5 @@ pub mod export;
 pub mod i18n;
 pub mod markup;
 pub mod media;
+pub mod notify;
 pub mod web;

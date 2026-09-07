@@ -21,10 +21,10 @@ are in `../AGENTS.md`.
 |---|---|
 | Done | **Task 1** — an address from the token |
 | Done | **Task 2** — subscriptions: who hears about what |
-| Next | **Task 3** — the outbox, and a sender that survives a restart |
-| | **Task 4** — one-click unsubscribe, without signing in |
-| | **Task 5** — a generic webhook as a second exit |
-| | **Task 6** — full-text search over FTS5 |
+| Done | **Task 3** — the outbox, and a sender that survives a restart |
+| Done | **Task 4** — one-click unsubscribe, without signing in |
+| Next | **Task 5** — a generic webhook as a second exit (waiting for a decision) |
+| Done | **Task 6** — full-text search over FTS5 |
 
 ---
 
@@ -77,20 +77,20 @@ topic takes its subscriptions with it — each asserted against the database.
 
 **Files:** migrations, `src/notify/`, `src/main.rs`, `nix/module.nix`
 
-- [ ] Notifications are **written to the database inside the same transaction
+- [x] Notifications are **written to the database inside the same transaction
       as the post**, and sent by a background task. Two reasons, and both are
       the point: a reply must not be lost because SMTP is down, and a request
       must not wait on the network while somebody watches a spinner.
-- [ ] Rows carry attempts and a next-attempt time. A permanent refusal (5xx at
+- [x] Rows carry attempts and a next-attempt time. A permanent refusal (5xx at
       the protocol level, an address the server rejects) stops after a bounded
       number of tries and stays visible in the table rather than looping.
-- [ ] SMTP over `lettre`: host, port, username from the environment, **password
+- [x] SMTP over `lettre`: host, port, username from the environment, **password
       from a file** — the same rule as the OIDC secret, for the same reason.
       STARTTLS by default; refuse to start with credentials but no TLS.
-- [ ] One mail per person per event, with the topic title as the subject, the
+- [x] One mail per person per event, with the topic title as the subject, the
       body of the reply as text, and a link back. Plain text and HTML, because
       the from-address is a real mailbox and the reader may be anywhere.
-- [ ] The module gets the options, and the VM test proves the unit starts
+- [x] The module gets the options, and the VM test proves the unit starts
       without a mail server and does not die when there is nothing to send.
 
 **Done when:** a reply leaves exactly one row per subscriber in the outbox, a
@@ -101,15 +101,15 @@ it and retries, and a restart loses nothing.
 
 **Files:** `src/web/`, `src/notify/`
 
-- [ ] Every notification carries an unsubscribe link that works **without
+- [x] Every notification carries an unsubscribe link that works **without
       signing in**. Behind a sign-in it is not an unsubscribe link, it is a
       sign-in link, and the person will use their mail client's spam button
       instead — which costs the whole domain, not one subscription.
-- [ ] The link is an HMAC over (subject, topic), with a key from a file. It
+- [x] The link is an HMAC over (subject, topic), with a key from a file. It
       cancels **one** subscription, never all of them, and it is idempotent.
-- [ ] A wrong or truncated token and an unknown subscription answer the same
+- [x] A wrong or truncated token and an unknown subscription answer the same
       way. Anything else says whether a person is in this forum.
-- [ ] `List-Unsubscribe` and `List-Unsubscribe-Post`, so a mail client can
+- [x] `List-Unsubscribe` and `List-Unsubscribe-Post`, so a mail client can
       offer the button itself.
 
 **Done when:** the link cancels exactly one subscription, twice in a row
@@ -137,15 +137,15 @@ then given up on.
 
 **Files:** migrations, `src/db/search.rs`, `src/web/`, `src/web/views.rs`
 
-- [ ] An FTS5 table over post bodies and topic titles, kept up to date by
+- [x] An FTS5 table over post bodies and topic titles, kept up to date by
       triggers rather than by application code — the application forgets, a
       trigger does not.
-- [ ] **A search is scoped to one space and to the categories that person may
+- [x] **A search is scoped to one space and to the categories that person may
       read.** This is a security property, not a convenience: a hit list that
       leaks a title from the other audience is a leak, and it is the kind that
       looks like a feature until someone notices.
-- [ ] A search field in the header, results with the matching line in context.
-- [ ] `porter unicode61` so German and English both stem, and a test with
+- [x] A search field in the header, results with the matching line in context.
+- [x] `porter unicode61` so German and English both stem, and a test with
       umlauts that would fail under the default tokenizer.
 
 **Done when:** a search finds a word in a body and in a title, finds nothing

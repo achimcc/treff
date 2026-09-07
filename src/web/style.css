@@ -156,6 +156,36 @@ header nav {
 header nav .up { color: var(--quiet); text-decoration-color: hsl(150 30% 35%); }
 header nav .up:hover { color: var(--on); }
 
+.find { display: inline-flex; }
+
+.find input {
+    font: 12px/1 var(--mono);
+    width: 9rem;
+    padding: .35rem .5rem;
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    background: var(--ground);
+    color: var(--text);
+}
+
+.find input::placeholder { color: var(--murmur); }
+
+.find input:focus-visible {
+    outline: none;
+    border-color: hsl(150 60% 40%);
+    box-shadow: 0 0 0 1px hsl(150 70% 45% / .45);
+}
+
+/* A hit is a topic plus the line it was found in. */
+.hit { display: block; }
+
+.snippet {
+    margin: .35rem 0 0;
+    color: var(--quiet);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
 header nav .who { color: var(--quiet); }
 header nav .who::before { content: "@"; color: var(--murmur); }
 
@@ -457,6 +487,33 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 
 .body table { border-collapse: collapse; }
 .body th, .body td { border: 1px solid var(--edge); padding: .4rem .6rem; }
+
+/* --- The page somebody reaches from a mail ------------------------------ */
+/* No header and no navigation: whoever opens this may not be signed in, and
+   a sign-out link would be a lie. */
+
+main.bare { padding-top: 3rem; }
+
+main.bare p {
+    color: var(--quiet);
+    max-width: 34rem;
+}
+
+main.bare form { margin-top: 1.5rem; }
+
+main.bare button {
+    font: 600 13px/1 var(--mono);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .7rem 1.4rem;
+    border: 1px solid var(--on);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--on);
+    cursor: pointer;
+}
+
+main.bare button:hover { background: var(--on); color: var(--ground); }
 
 /* --- The foot ---------------------------------------------------------- */
 

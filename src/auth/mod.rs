@@ -114,6 +114,24 @@ impl Sessions {
     pub async fn create(db: &Db, who: &Identity) -> anyhow::Result<String> {
         let id = random_id()?;
         let now = crate::db::topics::now();
+
+        // THE ACCOUNT ROW IS WHY MAIL WORKS ON A THURSDAY. A session expires
+        // after twelve hours; a subscription does not. Keeping the address
+        // only on the session would mean notifying whoever happens to be
+        // logged in, which is the opposite of what a notification is for.
+        sqlx::query(
+            "INSERT INTO accounts (subject, name, email, seen_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(subject) DO UPDATE SET name = excluded.name,
+                                                email = excluded.email,
+                                                seen_at = excluded.seen_at",
+        )
+        .bind(&who.subject)
+        .bind(&who.name)
+        .bind(&who.email)
+        .bind(now)
+        .execute(db.pool())
+        .await?;
+
         sqlx::query(
             "INSERT INTO sessions (id, subject, name, groups_json, email, created_at, expires_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -151,6 +169,21 @@ impl Sessions {
             groups: serde_json::from_str(&row.get::<String, _>("groups_json")).unwrap_or_default(),
             email: row.get("email"),
         }))
+    }
+
+    /// The address of somebody who is not here right now.
+    ///
+    /// `None` covers both "no such account" and "no address on it": the
+    /// caller does the same thing either way, and telling them apart would
+    /// only invite a branch that treats one as an error.
+    pub async fn address_of(db: &Db, subject: &str) -> anyhow::Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT email FROM accounts WHERE subject = ?")
+                .bind(subject)
+                .fetch_optional(db.pool())
+                .await?
+                .flatten(),
+        )
     }
 
     pub async fn destroy(db: &Db, id: &str) -> anyhow::Result<()> {
@@ -232,6 +265,65 @@ mod tests {
     fn without_a_name_the_subject_stands_in() {
         let id = claims_to_identity("sub-9", None, &json!({}), "groups");
         assert_eq!(id.name, "sub-9");
+    }
+
+    /// THE CASE THAT MAKES NOTIFICATIONS WORK AT ALL: reaching somebody who
+    /// is not signed in.
+    #[tokio::test]
+    async fn an_address_outlives_the_session_it_arrived_with() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = crate::db::Db::open(&dir.path().join("t.db"))
+            .await
+            .expect("open");
+
+        let ada = Identity {
+            subject: "s1".into(),
+            name: "Ada".into(),
+            groups: vec!["Household".into()],
+            email: Some("ada@example.org".into()),
+        };
+        let id = Sessions::create(&db, &ada).await.expect("session");
+        Sessions::destroy(&db, &id).await.expect("sign out");
+
+        assert_eq!(
+            Sessions::address_of(&db, "s1")
+                .await
+                .expect("lookup")
+                .as_deref(),
+            Some("ada@example.org"),
+            "signing out is not a reason to stop being reachable"
+        );
+        assert_eq!(
+            Sessions::address_of(&db, "nobody").await.expect("lookup"),
+            None
+        );
+    }
+
+    /// And a changed address at the provider wins, on the next sign-in.
+    #[tokio::test]
+    async fn the_account_takes_the_newer_address() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = crate::db::Db::open(&dir.path().join("t.db"))
+            .await
+            .expect("open");
+        let mut ada = Identity {
+            subject: "s1".into(),
+            name: "Ada".into(),
+            groups: vec![],
+            email: Some("old@example.org".into()),
+        };
+        Sessions::create(&db, &ada).await.expect("session");
+        ada.email = Some("new@example.org".into());
+        ada.name = "Ada B.".into();
+        Sessions::create(&db, &ada).await.expect("session");
+
+        assert_eq!(
+            Sessions::address_of(&db, "s1")
+                .await
+                .expect("lookup")
+                .as_deref(),
+            Some("new@example.org")
+        );
     }
 
     /// Storing an address is not the point — carrying it back out is.

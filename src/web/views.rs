@@ -15,6 +15,19 @@ use maud::{DOCTYPE, Markup, PreEscaped, html};
 pub const STYLESHEET: &str = include_str!("style.css");
 
 pub fn layout(space: &Space, who: &Identity, lang: Lang, title: &str, body: Markup) -> Markup {
+    layout_with_search(space, who, lang, title, "", body)
+}
+
+/// The same layout, with whatever was searched for left standing in the field.
+/// A search box that empties itself on the results page is one people retype.
+pub fn layout_with_search(
+    space: &Space,
+    who: &Identity,
+    lang: Lang,
+    title: &str,
+    find: &str,
+    body: Markup,
+) -> Markup {
     html! {
         (DOCTYPE)
         html lang=(lang.code()) {
@@ -43,6 +56,11 @@ pub fn layout(space: &Space, who: &Identity, lang: Lang, title: &str, body: Mark
                             span class="cursor" {}
                         }
                         nav {
+                            form class="find" method="get" action="/search" {
+                                input type="search" name="q" value=(find)
+                                      placeholder=(lang.t("search_placeholder"))
+                                      aria-label=(lang.t("search_placeholder"));
+                            }
                             @if let Some(home) = &space.home {
                                 // Beschriftet mit dem Ort, nicht mit einem
                                 // Pfeil: Wer hier landet, kommt oft aus einem
@@ -116,6 +134,90 @@ pub fn category_index(
         }
     };
     layout(space, who, lang, &space.title, body)
+}
+
+/// What a search found. The snippet arrives with `[` and `]` around the
+/// match — plain characters, so it goes through Maud's escaping like every
+/// other piece of somebody else's text.
+pub fn search_page(
+    space: &Space,
+    who: &Identity,
+    lang: Lang,
+    find: &str,
+    hits: &[crate::db::search::Hit],
+) -> Markup {
+    let body = html! {
+        h2 class="section-head" { (lang.t("search_results")) }
+        @if find.trim().is_empty() {
+            p class="empty" { (lang.t("search_prompt")) }
+        } @else if hits.is_empty() {
+            p class="empty" { (lang.t("search_nothing")) }
+        } @else {
+            ul class="topics" {
+                @for hit in hits {
+                    li class="hit" {
+                        a href={ "/t/" (hit.topic_id) } { (hit.title) }
+                        span class="byline" {
+                            span class="name" { (hit.category) }
+                            span class="sep" { " · " }
+                            (day(hit.updated_at))
+                        }
+                        p class="snippet" { (hit.snippet) }
+                    }
+                }
+            }
+        }
+    };
+    layout_with_search(space, who, lang, lang.t("search_results"), find, body)
+}
+
+/// The unsubscribe page. Deliberately plain and deliberately outside the
+/// signed-in layout: whoever opens it may not be signed in, and asking them to
+/// be would defeat the link.
+pub fn unsubscribe_page(space: &Space, lang: Lang, id: i64, token: &str) -> Markup {
+    bare(
+        space,
+        lang,
+        lang.t("unsubscribe_title"),
+        html! {
+            p { (lang.t("unsubscribe_question")) }
+            form method="post" action={ "/u/" (id) "/" (token) } {
+                button type="submit" { (lang.t("unsubscribe_confirm")) }
+            }
+        },
+    )
+}
+
+pub fn unsubscribed_page(space: &Space, lang: Lang) -> Markup {
+    bare(
+        space,
+        lang,
+        lang.t("unsubscribed_title"),
+        html! { p { (lang.t("unsubscribed_note")) } },
+    )
+}
+
+/// A page with no header and no navigation, for the two places somebody
+/// arrives without a session. Everything the normal layout shows — the name,
+/// the sign-out link — would be a lie here.
+fn bare(space: &Space, lang: Lang, title: &str, body: Markup) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang=(lang.code()) {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { (title) " — " (space.title) }
+                link rel="stylesheet" href="/assets/style.css";
+            }
+            body {
+                main class="bare" {
+                    h1 { (title) }
+                    (body)
+                }
+            }
+        }
+    }
 }
 
 /// A timestamp as a plain day. No clock: in a forum for a closed circle the

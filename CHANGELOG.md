@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.3.0 — 2026-09-07
+
+**Stage 2, the part that makes inviting people make sense.** A forum without
+notifications gets read exactly once by someone who does not live with it.
+
+### Added
+
+- **Writing subscribes you.** Opening a topic or replying to one is the
+  clearest statement that you want to know what happens next; asking
+  afterwards is a dialogue nobody wants. Undoable from a button on the topic
+  page, and **never a mail about your own post** — a forum that mails you your
+  own words teaches people to filter it away, and then it teaches them nothing
+  else.
+- **Mail, through an outbox in the database**, written in the same transaction
+  as the post and drained by a background task. A reply must not be lost
+  because SMTP is down, and a request must not wait on the network. Failures
+  back off and, after eight attempts, stop — the row stays in the table with
+  its last error, because a row that vanishes takes the reason with it.
+- **One-click unsubscribe that does not ask anybody to sign in.** Behind a
+  sign-in it is not an unsubscribe link, it is a sign-in link, and the person
+  reaches for the spam button instead — which costs the whole domain rather
+  than one subscription. `List-Unsubscribe` and `List-Unsubscribe-Post` so a
+  mail client can offer the button itself. It cancels **one** subscription,
+  and a tampered token changes nothing and says nothing.
+- **An `accounts` table.** The address arrives with a sign-in, and a session
+  expires after twelve hours: keeping it there would have meant notifying
+  whoever happens to be logged in. Refreshed on every sign-in, so a changed
+  address is right again the next time somebody comes by.
+- **Full-text search over FTS5**, scoped to one space and to the categories
+  that person may read. That is a security property, not a convenience: a hit
+  list leaking a title from the other audience looks like a feature until
+  somebody notices. `porter unicode61 remove_diacritics 2`, so `wunsche`
+  finds `Wünsche`. The index is maintained by triggers — the application
+  forgets, a trigger does not.
+- `TREFF_SMTP_*` and `services.treff.mail`. Without a host nobody is
+  notified and treff runs anyway: mail is optional, not half-built. A password
+  without STARTTLS is refused at startup and at build time.
+
+### Two things worth writing down
+
+- **`content='posts'` reads the original text by COLUMN NAME.** An FTS5 column
+  called `body` over a table whose column is `body_markdown` creates fine,
+  indexes fine and matches fine — and then answers `no such column: T.body`
+  for every query that touches the content, `snippet()` and `count(*)`
+  included.
+- **`src = self` is the git tree here too.** `notify/` was untracked, so the
+  Nix build could not see it and `nix flake check` failed with
+  `file not found for module`, while `cargo test` was green.
+
 ## 0.2.3 — 2026-09-06
 
 - **`home` per space**: the way back to wherever people came from, shown in

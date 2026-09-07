@@ -241,3 +241,57 @@ async fn the_stylesheet_is_served_from_this_origin() {
         "text/css; charset=utf-8"
     );
 }
+
+/// Search, over the router — including the part that is a security property.
+#[tokio::test]
+async fn a_search_finds_only_what_this_address_holds() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = treff::authz::Identity {
+        subject: "ada".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "The projector",
+        "It is in the cellar.",
+        &ada,
+    )
+    .await
+    .expect("forum topic");
+    treff::db::topics::create_topic(
+        &db,
+        "blog.example.org",
+        "notes",
+        "Something else entirely",
+        "A word only the blog knows: chiffon.",
+        &ada,
+    )
+    .await
+    .expect("blog topic");
+
+    let cookie = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    let found = body_of(
+        app.clone()
+            .oneshot(get("forum.example.org", "/search?q=cellar", &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+    assert!(found.contains("The projector"), "{found}");
+    assert!(found.contains("[cellar]"), "the match is marked: {found}");
+
+    let across = body_of(
+        app.oneshot(get("forum.example.org", "/search?q=chiffon", &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+    assert!(
+        !across.contains("Something else entirely"),
+        "a search must not reach across addresses: {across}"
+    );
+}

@@ -66,6 +66,9 @@ pub struct AppState {
     /// rather than from anything a request carries.
     pub data_dir: std::path::PathBuf,
     cookie_key: Key,
+    /// Signs unsubscribe links. Its own key, never the cookie key — see
+    /// `notify::unsubscribe`.
+    pub unsubscribe_key: std::sync::Arc<Vec<u8>>,
 }
 
 impl FromRef<AppState> for Key {
@@ -117,6 +120,9 @@ impl AppState {
             provider: Arc::new(tokio::sync::OnceCell::new()),
             data_dir: dir.to_path_buf(),
             cookie_key: load_or_create_cookie_key(dir)?,
+            unsubscribe_key: std::sync::Arc::new(crate::notify::unsubscribe::load_or_create_key(
+                dir,
+            )?),
         })
     }
 
@@ -201,7 +207,11 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
         return (StatusCode::FORBIDDEN, "unknown host").into_response();
     }
 
-    let open = path.starts_with("/auth/") || path.starts_with("/assets/");
+    // `/u/` is open BY DESIGN: an unsubscribe link that asks for a sign-in is
+    // not an unsubscribe link. It carries its own proof (an HMAC), so being
+    // open costs nothing that the token does not already guard.
+    let open =
+        path.starts_with("/auth/") || path.starts_with("/assets/") || path.starts_with("/u/");
     if !open && identity_from_cookies(&app, &parts).await.is_none() {
         return Redirect::to("/auth/login").into_response();
     }
@@ -421,6 +431,93 @@ async fn change_subscription(
         Ok(()) => Redirect::to(&format!("/t/{id}")).into_response(),
         Err(e) => server_error("cannot change a subscription", &e),
     }
+}
+
+#[derive(serde::Deserialize)]
+pub struct SearchQuery {
+    #[serde(default)]
+    q: String,
+}
+
+/// Search, restricted to this space and to what this person may read.
+///
+/// THE CATEGORY LIST IS THE PERMISSION CHECK, and it is computed here rather
+/// than trusted from the request: a hit list that shows a title out of a
+/// category somebody may not enter is a leak, and it is the kind that looks
+/// like a feature until somebody notices.
+async fn search_page(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    lang: crate::i18n::Lang,
+    axum::extract::Query(query): axum::extract::Query<SearchQuery>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    // Reading a space is decided per space; the categories then decide what is
+    // visible inside it. Someone who may read the space may read its
+    // categories — `post` and `reply` are the rights that differ.
+    let categories: Vec<String> = space.categories.iter().map(|c| c.slug.clone()).collect();
+
+    match crate::db::search::search(&app.db, &space.host, &categories, &query.q, PAGE_SIZE).await {
+        Ok(hits) => {
+            crate::web::views::search_page(&space, &who, lang, &query.q, &hits).into_response()
+        }
+        Err(e) => server_error("cannot search", &e),
+    }
+}
+
+/// The unsubscribe page — reachable WITHOUT SIGNING IN, and that is the whole
+/// point. Behind a sign-in this is not an unsubscribe link, it is a sign-in
+/// link, and the person who wanted it to stop reaches for the spam button
+/// instead. That costs the domain, not the subscription.
+///
+/// `GET` only shows a button. The `POST` below does the work, so that a link
+/// preview or a mail client fetching URLs cannot unsubscribe anybody.
+async fn unsubscribe_page(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    lang: crate::i18n::Lang,
+    axum::extract::Path((id, token)): axum::extract::Path<(i64, String)>,
+) -> Response {
+    if !crate::notify::unsubscribe::verify(&app.unsubscribe_key, id, &token) {
+        // Same answer as a row that does not exist: whether a link is merely
+        // old or was never real is not something to hand out.
+        return not_found();
+    }
+    crate::web::views::unsubscribe_page(&space, lang, id, &token).into_response()
+}
+
+/// Cancels ONE subscription. Never all of them: somebody who is done with one
+/// noisy topic has not asked to stop hearing about everything, and a link that
+/// did that would be a surprise nobody can undo.
+///
+/// Idempotent, because a link in a mail gets clicked twice — and because
+/// `List-Unsubscribe-Post` means a mail client may send this without anybody
+/// clicking at all.
+async fn unsubscribe_now(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    lang: crate::i18n::Lang,
+    axum::extract::Path((id, token)): axum::extract::Path<(i64, String)>,
+) -> Response {
+    if !crate::notify::unsubscribe::verify(&app.unsubscribe_key, id, &token) {
+        return not_found();
+    }
+    match crate::db::outbox::who_and_what(&app.db, id).await {
+        Ok(Some((subject, topic_id))) => {
+            if let Err(e) = crate::db::subscriptions::unfollow(&app.db, &subject, topic_id).await {
+                return server_error("cannot unsubscribe", &e);
+            }
+        }
+        // The row is gone, or the topic is. Nothing to do, and the answer is
+        // the same one a successful click gets — the alternative tells a
+        // stranger whether a subscription existed.
+        Ok(None) => {}
+        Err(e) => return server_error("cannot look up a notification", &e),
+    }
+    crate::web::views::unsubscribed_page(&space, lang).into_response()
 }
 
 fn tracing_error(what: &str, e: &anyhow::Error) {
@@ -950,6 +1047,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(space_index))
         .route("/c/{slug}", get(space_category))
+        .route("/search", get(search_page))
         .route("/t/{id}", get(topic_page))
         .route("/c/{slug}/new", axum::routing::post(open_topic))
         .route("/t/{id}/reply", axum::routing::post(reply))
@@ -968,6 +1066,8 @@ pub fn router(state: AppState) -> Router {
         .route("/a/{id}", get(serve_attachment))
         .route("/assets/style.css", get(stylesheet))
         .route("/auth/login", get(login))
+        .route("/u/{id}/{token}", get(unsubscribe_page))
+        .route("/u/{id}/{token}", axum::routing::post(unsubscribe_now))
         .route("/auth/callback", get(callback))
         .route("/auth/logout", get(logout))
         .layer(middleware::from_fn_with_state(

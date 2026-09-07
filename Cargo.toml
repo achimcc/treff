@@ -1,6 +1,6 @@
 [package]
 name = "treff"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "A small forum for closed groups, authenticated by your own OIDC provider"
@@ -16,11 +16,14 @@ axum = { version = "0.8.9", features = ["multipart"] }
 axum-extra = { version = "0.12.6", features = ["cookie-private"] }
 base64 = "0.23.1"
 comrak = "0.54.0"
+hmac = "0.13.0"
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "tokio1-rustls", "rustls-native-certs", "pool", "ring"] }
 maud = { version = "0.27.0", features = ["axum"] }
 openidconnect = "4.0.1"
 rand = "0.10.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.11.0"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 thiserror = "2.0.20"
 time = "0.3.55"

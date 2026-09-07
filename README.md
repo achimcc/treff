@@ -11,6 +11,9 @@ groups in their token. No local accounts, no passwords, no open registration.
   **topic list** (a forum).
 - A timeline can be **fed from a directory of Markdown files**, so the text
   that announces a change elsewhere is the same text people comment on here.
+- **Writing subscribes you**, and a reply mails the people who are following —
+  never the person who wrote it. Mail is optional: without an SMTP server
+  treff runs and notifies nobody, rather than half-working.
   Those files keep their own front matter; `title_key` says which key holds
   the title, so a German newsletter writing `titel:` needs no second key.
 
@@ -20,7 +23,7 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.2.3** — everything below works and is covered by tests. It is in
+Early. **v0.3.0** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06; nobody but its author has posted in it
 yet. Search and notifications are the next stage.
 
@@ -82,6 +85,12 @@ escalation by typo.
 | `TREFF_OIDC_CLIENT_ID` | **required** |
 | `TREFF_OIDC_CLIENT_SECRET_FILE` | a **path**, never the secret itself; **required** |
 | `TREFF_OIDC_GROUP_CLAIM` | default `groups` |
+| `TREFF_SMTP_HOST` | the mail server; **without it nobody is notified** |
+| `TREFF_SMTP_PORT` | default `587` |
+| `TREFF_SMTP_FROM` | envelope sender, and where replies to notifications go |
+| `TREFF_SMTP_USERNAME` | optional |
+| `TREFF_SMTP_PASSWORD_FILE` | a **path**, never the password itself |
+| `TREFF_SMTP_STARTTLS` | default on; off is refused together with a password |
 
 There is no redirect-URI setting. Each space is sent back to
 `https://<its host>/auth/callback`, so **register one redirect URI per space**

@@ -137,6 +137,16 @@ pub async fn add_reply(
     // Replying subscribes you too — same transaction, same reason.
     crate::db::subscriptions::follow_in(&mut tx, &author.subject, topic_id).await?;
 
+    // AND WHAT IS OWED IS WRITTEN DOWN HERE, not after the commit. A reply
+    // that exists without its notifications is a reply nobody hears about,
+    // and nothing later can tell that it happened. `follow_in` runs first, so
+    // the writer is already a subscriber and is excluded by name below.
+    let space: String = sqlx::query_scalar("SELECT space FROM topics WHERE id = ?")
+        .bind(topic_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    crate::db::outbox::queue_for_followers(&mut tx, &space, topic_id, id, &author.subject).await?;
+
     tx.commit().await?;
     Ok(id)
 }

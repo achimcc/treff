@@ -114,7 +114,33 @@ async fn serve() -> anyhow::Result<()> {
     // cut the two come up in whatever order they come up in. Nothing is opened
     // by that — without a provider nobody signs in, and every page needs a
     // session.
+    // THE SENDER IS STARTED BEFORE THE LISTENER, and its failure to start is
+    // fatal while its failure to send is not. A mail server that is
+    // misconfigured should say so now, at the one moment somebody is watching
+    // the logs — not on the evening somebody replies.
+    let sender = match treff::notify::mail::Settings::from_env()? {
+        Some(settings) => {
+            let mailer = treff::notify::mail::Mailer::new(&settings)?;
+            eprintln!("treff: notifications go out over {}", settings.host);
+            Some(mailer)
+        }
+        None => {
+            eprintln!("treff: no TREFF_SMTP_HOST, so nobody is notified of anything");
+            None
+        }
+    };
+
     let state = treff::web::AppState::new(config, db, oidc, &data_dir)?;
+
+    if let Some(mailer) = sender {
+        let db = state.db.clone();
+        let config = state.config.clone();
+        let key = state.unsubscribe_key.clone();
+        tokio::spawn(async move {
+            notify_forever(db, config, key, mailer).await;
+        });
+    }
+
     let app = treff::web::router(state);
 
     let listen = std::env::var("TREFF_LISTEN").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
@@ -122,4 +148,39 @@ async fn serve() -> anyhow::Result<()> {
     eprintln!("treff: listening on {listen}");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Drains the outbox, forever.
+///
+/// A LOOP AND NOT A REACTION TO A POST, for the reason the table exists: a
+/// notification that was owed while the mail server was down has to go out
+/// when it comes back, and nothing is going to post again to trigger that.
+/// The interval is the worst-case delay for a reply nobody was waiting on,
+/// which is a cheap thing to spend.
+async fn notify_forever(
+    db: treff::db::Db,
+    config: std::sync::Arc<treff::config::Config>,
+    unsubscribe_key: std::sync::Arc<Vec<u8>>,
+    mailer: treff::notify::mail::Mailer,
+) {
+    const EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+    const BATCH: i64 = 25;
+    loop {
+        let composer = |row: &treff::db::outbox::Owed| {
+            let db = db.clone();
+            let config = config.clone();
+            let key = unsubscribe_key.clone();
+            let row = row.clone();
+            Box::pin(async move { treff::notify::compose(&db, &config, &key, &row).await })
+                as treff::notify::BoxFuture<anyhow::Result<Option<treff::notify::Message>>>
+        };
+        match treff::notify::drain_once(&db, &mailer, composer, BATCH).await {
+            Ok(0) => {}
+            Ok(n) => eprintln!("treff: {n} notification(s) sent"),
+            // The loop does not end on an error. A database that is briefly
+            // busy is not a reason to stop notifying anybody for good.
+            Err(e) => eprintln!("treff: the outbox could not be drained: {e}"),
+        }
+        tokio::time::sleep(EVERY).await;
+    }
 }

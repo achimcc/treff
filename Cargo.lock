@@ -146,6 +146,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-trait"
+version = "0.1.92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.5",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -528,6 +539,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "const-oid"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
 name = "cookie"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -540,6 +557,16 @@ dependencies = [
  "subtle",
  "time",
  "version_check",
+]
+
+[[package]]
+name = "core-foundation"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
 ]
 
 [[package]]
@@ -816,7 +843,7 @@ version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
- "const-oid",
+ "const-oid 0.9.6",
  "pem-rfc7468",
  "zeroize",
 ]
@@ -837,7 +864,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
- "const-oid",
+ "const-oid 0.9.6",
  "crypto-common 0.1.6",
  "subtle",
 ]
@@ -849,6 +876,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
+ "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
 ]
@@ -958,6 +986,22 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
+
+[[package]]
+name = "email-encoding"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "420b9da095f052ea597503e39073b5b3c522f7db933fbac202d91d24492693fd"
+dependencies = [
+ "base64 0.23.1",
+ "memchr",
+]
+
+[[package]]
+name = "email_address"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
 
 [[package]]
 name = "emojis"
@@ -1774,6 +1818,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "lettre"
+version = "0.11.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2c646bd5cc763b1087b15493e29a64be6147ba8f19342004fa52048ee596eae"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "email-encoding",
+ "email_address",
+ "fastrand",
+ "futures-io",
+ "futures-util",
+ "httpdate",
+ "idna",
+ "mime",
+ "nom",
+ "percent-encoding",
+ "quoted_printable",
+ "rustls",
+ "rustls-native-certs",
+ "socket2",
+ "tokio",
+ "tokio-rustls",
+ "url",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1949,6 +2020,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "nom"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "num-bigint-dig"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2099,6 +2179,12 @@ dependencies = [
  "thiserror 1.0.69",
  "url",
 ]
+
+[[package]]
+name = "openssl-probe"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "ordered-float"
@@ -2434,6 +2520,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "quoted_printable"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "478e0585659a122aa407eb7e3c0e1fa51b1d8a870038bd29f0cf4a8551eea972"
+
+[[package]]
 name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2621,7 +2713,7 @@ version = "0.9.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
 dependencies = [
- "const-oid",
+ "const-oid 0.9.6",
  "digest 0.10.7",
  "num-bigint-dig",
  "num-integer",
@@ -2669,12 +2761,25 @@ version = "0.23.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
 dependencies = [
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
  "rustls-webpki",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rustls-native-certs"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework",
 ]
 
 [[package]]
@@ -2720,6 +2825,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "schannel"
+version = "0.1.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "schemars"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2761,6 +2875,29 @@ dependencies = [
  "pkcs8",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "security-framework"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d"
+dependencies = [
+ "bitflags 2.13.1",
+ "core-foundation",
+ "core-foundation-sys",
+ "libc",
+ "security-framework-sys",
+]
+
+[[package]]
+name = "security-framework-sys"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
 ]
 
 [[package]]
@@ -3635,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "treff"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -3643,11 +3780,14 @@ dependencies = [
  "axum-extra",
  "base64 0.23.1",
  "comrak",
+ "hmac 0.13.0",
+ "lettre",
  "maud",
  "openidconnect",
  "rand 0.10.2",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "sqlx",
  "temp-env",
  "tempfile",
