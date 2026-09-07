@@ -174,6 +174,28 @@ another file and had never been checked against the running instance. No new
 zone edge, no exception in a lock — the existing `treff-01 → infra-01:443`
 carries it.
 
+## Measured after the fact
+
+Two things this plan called done on the strength of a mock server, checked
+against the running deployment on 2026-09-07:
+
+**The delivery legs work.** The SMTP relay answered `235` to treff's
+credentials and ntfy answered `200` to a webhook post built the way
+`notify::webhook` builds one. Both were exercised from inside the container
+with the credentials systemd hands the service — not from a workstation with a
+copy of them, which would have proven something else. Neither had ever run:
+the outbox was empty because nobody had written a post yet.
+
+**Task 4's link did not work, and nothing here could have said so.** The
+unsubscribe path is open in treff's router, `tests/notifying.rs` proves it,
+and the link still came back as `302` to the identity provider — the
+forward-auth proxy in front answers first. The fix belongs to the deployment
+and is described in the README under *Behind a reverse proxy*; what belongs
+here is the shape of the mistake: **a test in this repository cannot see a
+layer that sits above this repository.** Every claim of the form "reachable
+without signing in" needs one measurement against the deployment that serves
+it, and the plan should have said so instead of stopping at the router.
+
 ## What this stage does NOT cover
 
 Everything the design lists as left out permanently: RSS, federation, trust

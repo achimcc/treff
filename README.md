@@ -117,6 +117,24 @@ own sign-in behind it, two redirects against the same provider session are
 invisible after the first one, and a fault in either layer does not open the
 service on its own.
 
+**But `/u/` must stay open in that layer too.** Every notification carries an
+unsubscribe link under `/u/<id>/<signature>`, and treff's own router lets it
+through without a session for the reason in Stage 2, Task 4: behind a sign-in
+it is not an unsubscribe link, it is a sign-in link, and the reader will use
+their mail client's spam button instead — which costs the whole domain rather
+than one subscription.
+
+A forward-auth proxy answers *before* treff sees the request, so treff's
+setting cannot help there. Measured on a real deployment on 2026-09-07:
+`GET /u/1/<anything>` came back as `302` to the identity provider while every
+test in this repository was green, because no test in this repository can see
+that layer. In Authentik that is `skip_path_regex: ^/u/` on the proxy
+provider; other proxies call it an unauthenticated path or a bypass rule.
+
+It does not open anything: the path carries an HMAC over (account, topic),
+cancels exactly one subscription, and answers a tampered signature the same
+way it answers one that never existed.
+
 ## Configuring your provider
 
 treff needs a confidential client with the authorization code flow, PKCE, and
