@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.1 — 2026-09-07
+
+- **A webhook as a second exit**: one `POST` per post — not one per
+  subscriber, because whatever is behind it fans out on its own and one
+  notification per person would be a stack of identical messages on one
+  telephone. JSON with `title`, `message`, `click` and an optional `topic`,
+  so it fits ntfy, Gotify, a bridge or a script.
+- **The two channels share the queue and nothing else.** A mail server that is
+  down must not hold up the webhook, and a webhook answering 500 must not hold
+  up the mail; they are drained separately, with the same retries and the same
+  bounded giving up.
+- No redirects are followed, and the URL comes from the configuration file
+  alone: a webhook whose target could be steered by a post would be an SSRF
+  with a friendly name, and a `302` would carry the bearer token to an address
+  nobody agreed to.
+- reqwest comes **through `openidconnect`**, which already has it. A second
+  copy with its own `rustls` would have pulled in a second TLS provider
+  (aws-lc-rs next to lettre's `ring`) — more attack surface and more build
+  time for the same HTTP request.
+
+### Found by the test
+
+`compose` demanded an address for every queued notification. Only mail needs
+one — a webhook goes to a place, not to a person — so every webhook row was
+being marked "nothing to send to" whenever the writing account had no address.
+The webhook would have been silent exactly when mail was, and for the same
+reason, which is what makes a second channel worth having.
+
 ## 0.3.0 — 2026-09-07
 
 **Stage 2, the part that makes inviting people make sense.** A forum without

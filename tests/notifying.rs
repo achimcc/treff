@@ -172,13 +172,12 @@ async fn a_reply_reaches_the_mail_server() {
         "and the way out travels with the notification: {received}"
     );
 
-    // Nothing is owed twice.
-    assert!(
-        treff::db::outbox::due(&db, 10)
-            .await
-            .expect("due")
-            .is_empty()
-    );
+    // Nothing is owed twice — ON THIS CHANNEL. The webhook row is still
+    // there, because nothing has drained it: the two do not drain each other,
+    // and that is the point of keeping them apart.
+    let offen = treff::db::outbox::due(&db, 10).await.expect("due");
+    assert!(!offen.iter().any(|o| o.kanal == "mail"), "{offen:?}");
+    assert_eq!(offen.iter().filter(|o| o.kanal == "webhook").count(), 1);
     drop(dir);
 }
 
@@ -281,5 +280,129 @@ async fn the_unsubscribe_link_works_without_signing_in() {
             .await
             .expect("check"),
         "and nothing was cancelled by a wrong token"
+    );
+}
+
+/// The second exit, against a server that really answers.
+///
+/// One request per POST — not one per subscriber: whatever is behind a webhook
+/// fans out on its own, and one notification per person would be a stack of
+/// identical messages on one telephone.
+#[tokio::test]
+async fn a_reply_reaches_the_webhook_once() {
+    let (_dir, db, _app) = setup_with_db().await;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.expect("accept");
+        let (read, mut write) = stream.into_split();
+        let mut reader = BufReader::new(read);
+        let mut received = String::new();
+        let mut laenge = 0usize;
+        loop {
+            let mut zeile = String::new();
+            if reader.read_line(&mut zeile).await.expect("line") == 0 {
+                break;
+            }
+            if let Some(n) = zeile.to_ascii_lowercase().strip_prefix("content-length:") {
+                laenge = n.trim().parse().unwrap_or(0);
+            }
+            received.push_str(&zeile);
+            if zeile == "\r\n" {
+                break;
+            }
+        }
+        let mut body = vec![0u8; laenge];
+        use tokio::io::AsyncReadExt as _;
+        reader.read_exact(&mut body).await.expect("body");
+        received.push_str(&String::from_utf8_lossy(&body));
+        write
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+            .await
+            .expect("answer");
+        received
+    });
+
+    let ada = treff::authz::Identity {
+        subject: "ada".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let ben = treff::authz::Identity {
+        subject: "ben".into(),
+        name: "Ben".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let topic = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "Who had the projector?",
+        "Not in the cupboard.",
+        &ada,
+    )
+    .await
+    .expect("topic");
+    treff::db::topics::add_reply(&db, topic, "It is at my place.", &ben)
+        .await
+        .expect("reply");
+
+    let hook = treff::notify::webhook::Hook::new(treff::notify::webhook::Settings {
+        url: format!("http://{addr}/"),
+        topic: Some("treff".into()),
+        token: Some("s3cret".into()),
+        timeout: std::time::Duration::from_secs(5),
+    })
+    .expect("hook");
+
+    let config = std::sync::Arc::new(
+        treff::config::Config::parse(common::CONFIGURATION).expect("configuration"),
+    );
+    let key = std::sync::Arc::new(vec![3u8; 64]);
+    let composer = |row: &treff::db::outbox::Owed| {
+        let db = db.clone();
+        let config = config.clone();
+        let key = key.clone();
+        let row = row.clone();
+        Box::pin(async move { treff::notify::compose(&db, &config, &key, &row).await })
+            as treff::notify::BoxFuture<anyhow::Result<Option<treff::notify::Message>>>
+    };
+
+    let sent = treff::notify::drain_channel(&db, &hook, composer, 10, "webhook")
+        .await
+        .expect("drain");
+    assert_eq!(sent, 1, "one request per post, however many people follow");
+
+    let received = tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .expect("the server answered in time")
+        .expect("server task");
+
+    assert!(received.contains("POST / HTTP"), "{received}");
+    assert!(
+        received.contains("authorization: Bearer s3cret"),
+        "the token travels: {received}"
+    );
+    assert!(received.contains("\"topic\":\"treff\""), "{received}");
+    assert!(received.contains("Who had the projector?"), "{received}");
+    assert!(received.contains("It is at my place."), "{received}");
+    assert!(
+        received.contains("https://forum.example.org/t/"),
+        "{received}"
+    );
+
+    // And the mail rows are untouched: the two channels do not drain each other.
+    assert!(
+        treff::db::outbox::due(&db, 10)
+            .await
+            .expect("due")
+            .iter()
+            .any(|o| o.kanal == "mail"),
+        "the mail is still owed"
     );
 }

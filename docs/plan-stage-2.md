@@ -23,7 +23,7 @@ are in `../AGENTS.md`.
 | Done | **Task 2** — subscriptions: who hears about what |
 | Done | **Task 3** — the outbox, and a sender that survives a restart |
 | Done | **Task 4** — one-click unsubscribe, without signing in |
-| Next | **Task 5** — a generic webhook as a second exit (waiting for a decision) |
+| Done | **Task 5** — a generic webhook as a second exit |
 | Done | **Task 6** — full-text search over FTS5 |
 
 ---
@@ -119,13 +119,13 @@ without an error, and a tampered token changes nothing and says nothing.
 
 **Files:** `src/notify/`, `nix/module.nix`
 
-- [ ] Per instance: a URL, an optional bearer token from a file, and a
+- [x] Per instance: a URL, an optional bearer token from a file, and a
       timeout. `POST` with title, text and link as JSON — generic on purpose,
       so it fits ntfy, Gotify, Matrix bridges and a shell script behind a
       reverse proxy.
-- [ ] Same outbox, same retries, same bounded attempts. A webhook that is down
+- [x] Same outbox, same retries, same bounded attempts. A webhook that is down
       must not hold up the mail.
-- [ ] **No redirects followed, and no arbitrary host at request time.** The URL
+- [x] **No redirects followed, and no arbitrary host at request time.** The URL
       comes from the configuration file and nowhere else; a webhook whose
       target could be steered by a post would be an SSRF with a friendly name.
 
@@ -156,19 +156,23 @@ an edit and a deletion.
 
 ## Waiting for a decision
 
-**Task 5, the webhook target.** ntfy listens on `127.0.0.1:2586` inside
-infra-01 and is reachable only through Caddy, which puts forward-auth in front
-of it — and a webhook from treff has no Authentik session. Three ways out, and
-the choice touches the zone table rather than this repository:
+**Who reads the notifications.** The write path is built and locked down:
+treff has its own ntfy user with a token that may `write-only` to a single
+topic, so a leak costs one topic rather than the server. Reading is the open
+half — either everybody gets an ntfy account, which is safe and a hurdle, or
+the topic is made anonymously readable, and then its name is the only secret.
+The name therefore comes out of sops and is random, which keeps both doors
+open instead of settling the question with a guessable `treff`.
 
-1. a zone edge `treff-01 → infra-01:2586` and ntfy listening on the guest
-   address (narrowest, but a new edge),
-2. a Caddy exception for `POST /<topic>` authenticated by an ntfy token
-   instead of forward-auth,
-3. skip ntfy and let the webhook point at something else entirely.
-
-Mail (tasks 3 and 4) does not depend on this, so it is built first. Noted
-2026-09-06 for whoever runs the instance to decide.
+**And an earlier entry here was wrong**, which is worth keeping rather than
+deleting: this section used to say the webhook needed a decision about the
+zone table, because ntfy sat behind forward-auth and treff had no Authentik
+session. Measured on 2026-09-07: it does not. `GET https://ntfy…/` answers
+200, and a `POST` without a token answers 403 **from ntfy**, which protects
+itself with `auth-default-access: deny-all`. The claim came from a comment in
+another file and had never been checked against the running instance. No new
+zone edge, no exception in a lock — the existing `treff-01 → infra-01:443`
+carries it.
 
 ## What this stage does NOT cover
 

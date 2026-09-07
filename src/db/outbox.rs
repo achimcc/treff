@@ -30,6 +30,9 @@ fn backoff(attempts: i64) -> i64 {
 pub struct Owed {
     pub id: i64,
     pub subject: String,
+    /// `mail` oder `webhook`. Eine Mail geht an jeden Abonnenten, ein Webhook
+    /// einmal pro Beitrag — der Empfaenger dahinter verteilt selbst.
+    pub kanal: String,
     pub topic_id: i64,
     pub post_id: i64,
     pub space: String,
@@ -49,8 +52,8 @@ pub async fn queue_for_followers(
 ) -> anyhow::Result<u64> {
     let now = crate::db::topics::now();
     let result = sqlx::query(
-        "INSERT INTO outbox (subject, topic_id, post_id, space, created_at, next_try_at)
-         SELECT subject, ?, ?, ?, ?, ?
+        "INSERT INTO outbox (subject, topic_id, post_id, space, created_at, next_try_at, kanal)
+         SELECT subject, ?, ?, ?, ?, ?, 'mail'
            FROM subscriptions
           WHERE topic_id = ? AND subject <> ?",
     )
@@ -63,6 +66,25 @@ pub async fn queue_for_followers(
     .bind(writer)
     .execute(&mut **tx)
     .await?;
+
+    // GENAU EINE WEBHOOK-ZEILE, unabhaengig von der Zahl der Abonnenten — und
+    // unabhaengig davon, ob ueberhaupt ein Webhook konfiguriert ist. Die
+    // Datenbankschicht kennt die Konfiguration nicht, und sie soll sie nicht
+    // kennen: Ist keiner eingerichtet, hakt der Sender die Zeile als „nichts
+    // zu senden" ab, genau wie bei einem Konto ohne Adresse.
+    sqlx::query(
+        "INSERT INTO outbox (subject, topic_id, post_id, space, created_at, next_try_at, kanal)
+         VALUES (?, ?, ?, ?, ?, ?, 'webhook')",
+    )
+    .bind(writer)
+    .bind(topic_id)
+    .bind(post_id)
+    .bind(space)
+    .bind(now)
+    .bind(now)
+    .execute(&mut **tx)
+    .await?;
+
     Ok(result.rows_affected())
 }
 
@@ -70,7 +92,7 @@ pub async fn queue_for_followers(
 pub async fn due(db: &Db, limit: i64) -> anyhow::Result<Vec<Owed>> {
     use sqlx::Row;
     let rows = sqlx::query(
-        "SELECT id, subject, topic_id, post_id, space, attempts
+        "SELECT id, subject, topic_id, post_id, space, attempts, kanal
            FROM outbox
           WHERE sent_at IS NULL AND next_try_at <= ? AND attempts < ?
           ORDER BY id
@@ -86,6 +108,7 @@ pub async fn due(db: &Db, limit: i64) -> anyhow::Result<Vec<Owed>> {
         .map(|r| Owed {
             id: r.get("id"),
             subject: r.get("subject"),
+            kanal: r.get("kanal"),
             topic_id: r.get("topic_id"),
             post_id: r.get("post_id"),
             space: r.get("space"),
@@ -183,11 +206,24 @@ mod tests {
             .expect("reply");
 
         let owed = due(&db, 100).await.expect("due");
-        let for_whom: Vec<&str> = owed.iter().map(|o| o.subject.as_str()).collect();
+        let per_mail: Vec<&str> = owed
+            .iter()
+            .filter(|o| o.kanal == "mail")
+            .map(|o| o.subject.as_str())
+            .collect();
         assert_eq!(
-            for_whom,
+            per_mail,
             vec!["ada"],
-            "ben wrote it, so only ada is owed one: {owed:?}"
+            "ben wrote it, so only ada is owed a mail: {owed:?}"
+        );
+
+        // And exactly ONE webhook, however many people follow: what is behind
+        // it fans out on its own, and one notification per subscriber would be
+        // a stack of identical messages on one telephone.
+        assert_eq!(
+            owed.iter().filter(|o| o.kanal == "webhook").count(),
+            1,
+            "{owed:?}"
         );
     }
 
@@ -203,15 +239,23 @@ mod tests {
             .await
             .expect("reply");
 
-        let owed = due(&db, 1).await.expect("due");
-        let row = owed.first().expect("one").clone();
+        let owed = due(&db, 10).await.expect("due");
+        let row = owed
+            .iter()
+            .find(|o| o.kanal == "mail")
+            .expect("a mail row")
+            .clone();
 
         // The first failure pushes it into the future, so it is not due now.
         mark_failed(&db, row.id, row.attempts, "connection refused")
             .await
             .expect("fail");
         assert!(
-            due(&db, 100).await.expect("due").is_empty(),
+            !due(&db, 100)
+                .await
+                .expect("due")
+                .iter()
+                .any(|o| o.id == row.id),
             "a failed row waits before it is tried again"
         );
 
@@ -237,13 +281,10 @@ mod tests {
             .await
             .expect("reply");
 
-        let row = due(&db, 1)
-            .await
-            .expect("due")
-            .first()
-            .expect("one")
-            .clone();
-        mark_sent(&db, row.id).await.expect("sent");
+        // Both rows — the mail and the one webhook — are drained the same way.
+        for row in due(&db, 100).await.expect("due") {
+            mark_sent(&db, row.id).await.expect("sent");
+        }
         assert!(due(&db, 100).await.expect("due").is_empty());
     }
 }

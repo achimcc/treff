@@ -7,6 +7,7 @@
 
 pub mod mail;
 pub mod unsubscribe;
+pub mod webhook;
 
 use crate::db::Db;
 
@@ -49,7 +50,27 @@ pub async fn drain_once<T: Transport>(
     compose: impl Fn(&crate::db::outbox::Owed) -> BoxFuture<anyhow::Result<Option<Message>>>,
     limit: i64,
 ) -> anyhow::Result<usize> {
-    let owed = crate::db::outbox::due(db, limit).await?;
+    drain_channel(db, transport, compose, limit, "mail").await
+}
+
+/// The same, for one channel.
+///
+/// TWO CHANNELS AND ONE QUEUE, drained separately: a mail server that is down
+/// must not hold up the webhook, and a webhook that answers 500 must not hold
+/// up the mail. They share the table, the retries and the giving up — and
+/// nothing else.
+pub async fn drain_channel<T: Transport>(
+    db: &Db,
+    transport: &T,
+    compose: impl Fn(&crate::db::outbox::Owed) -> BoxFuture<anyhow::Result<Option<Message>>>,
+    limit: i64,
+    kanal: &str,
+) -> anyhow::Result<usize> {
+    let owed: Vec<_> = crate::db::outbox::due(db, limit)
+        .await?
+        .into_iter()
+        .filter(|o| o.kanal == kanal)
+        .collect();
     let mut sent = 0;
     for row in owed {
         match compose(&row).await {
@@ -92,8 +113,20 @@ pub async fn compose(
     unsubscribe_key: &[u8],
     row: &crate::db::outbox::Owed,
 ) -> anyhow::Result<Option<Message>> {
-    let Some(to) = crate::auth::Sessions::address_of(db, &row.subject).await? else {
-        return Ok(None);
+    // NUR DIE MAIL BRAUCHT EINE ADRESSE. Ein Webhook geht an einen Ort, nicht
+    // an eine Person — die Zeile traegt trotzdem einen `subject`, weil sie an
+    // jemandem haengen muss. Ohne diese Unterscheidung wurde jede
+    // Webhook-Zeile als „nichts zu senden" abgehakt, sobald das schreibende
+    // Konto keine Adresse hatte: der Webhook waere genau dann still, wenn die
+    // Mail es auch ist, und aus demselben Grund — was ihn als zweiten Weg
+    // wertlos macht.
+    let to = if row.kanal == "mail" {
+        match crate::auth::Sessions::address_of(db, &row.subject).await? {
+            Some(adresse) => adresse,
+            None => return Ok(None),
+        }
+    } else {
+        String::new()
     };
     let Some(space) = config.space_for_host(&row.space) else {
         // The space was removed from the configuration while a notification
@@ -233,13 +266,11 @@ mod tests {
         );
         assert_eq!(transport.0.load(Ordering::SeqCst), 1);
 
-        // Still owed — but not right now, or a broken server would be hammered.
-        assert!(
-            crate::db::outbox::due(&db, 10)
-                .await
-                .expect("due")
-                .is_empty()
-        );
+        // Still owed — but not right now, or a broken server would be
+        // hammered. Only the mail row is asked about: the webhook row is
+        // untouched, because nothing drained that channel.
+        let offen = crate::db::outbox::due(&db, 10).await.expect("due");
+        assert!(!offen.iter().any(|o| o.kanal == "mail"), "{offen:?}");
         assert_eq!(crate::db::outbox::given_up(&db).await.expect("count"), 0);
     }
 
@@ -260,10 +291,11 @@ mod tests {
         );
         assert_eq!(transport.0.load(Ordering::SeqCst), 0, "nothing was sent");
         assert!(
-            crate::db::outbox::due(&db, 10)
+            !crate::db::outbox::due(&db, 10)
                 .await
                 .expect("due")
-                .is_empty(),
+                .iter()
+                .any(|o| o.kanal == "mail"),
             "and it is not owed again — retrying cannot produce an address"
         );
     }

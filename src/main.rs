@@ -118,6 +118,14 @@ async fn serve() -> anyhow::Result<()> {
     // fatal while its failure to send is not. A mail server that is
     // misconfigured should say so now, at the one moment somebody is watching
     // the logs — not on the evening somebody replies.
+    let hook = match treff::notify::webhook::Settings::from_env()? {
+        Some(settings) => {
+            eprintln!("treff: a webhook goes to {}", settings.url);
+            Some(treff::notify::webhook::Hook::new(settings)?)
+        }
+        None => None,
+    };
+
     let sender = match treff::notify::mail::Settings::from_env()? {
         Some(settings) => {
             let mailer = treff::notify::mail::Mailer::new(&settings)?;
@@ -132,12 +140,23 @@ async fn serve() -> anyhow::Result<()> {
 
     let state = treff::web::AppState::new(config, db, oidc, &data_dir)?;
 
+    // ZWEI SCHLEIFEN, NICHT EINE. Ein Mailserver, der klemmt, darf den Webhook
+    // nicht aufhalten und umgekehrt — sie teilen sich die Warteschlange, die
+    // Wiederholungen und das Aufgeben, und sonst nichts.
     if let Some(mailer) = sender {
         let db = state.db.clone();
         let config = state.config.clone();
         let key = state.unsubscribe_key.clone();
         tokio::spawn(async move {
-            notify_forever(db, config, key, mailer).await;
+            notify_forever(db, config, key, mailer, "mail").await;
+        });
+    }
+    if let Some(hook) = hook {
+        let db = state.db.clone();
+        let config = state.config.clone();
+        let key = state.unsubscribe_key.clone();
+        tokio::spawn(async move {
+            notify_forever(db, config, key, hook, "webhook").await;
         });
     }
 
@@ -157,11 +176,12 @@ async fn serve() -> anyhow::Result<()> {
 /// when it comes back, and nothing is going to post again to trigger that.
 /// The interval is the worst-case delay for a reply nobody was waiting on,
 /// which is a cheap thing to spend.
-async fn notify_forever(
+async fn notify_forever<T: treff::notify::Transport>(
     db: treff::db::Db,
     config: std::sync::Arc<treff::config::Config>,
     unsubscribe_key: std::sync::Arc<Vec<u8>>,
-    mailer: treff::notify::mail::Mailer,
+    transport: T,
+    kanal: &'static str,
 ) {
     const EVERY: std::time::Duration = std::time::Duration::from_secs(30);
     const BATCH: i64 = 25;
@@ -174,12 +194,12 @@ async fn notify_forever(
             Box::pin(async move { treff::notify::compose(&db, &config, &key, &row).await })
                 as treff::notify::BoxFuture<anyhow::Result<Option<treff::notify::Message>>>
         };
-        match treff::notify::drain_once(&db, &mailer, composer, BATCH).await {
+        match treff::notify::drain_channel(&db, &transport, composer, BATCH, kanal).await {
             Ok(0) => {}
-            Ok(n) => eprintln!("treff: {n} notification(s) sent"),
+            Ok(n) => eprintln!("treff: {n} notification(s) sent over {kanal}"),
             // The loop does not end on an error. A database that is briefly
             // busy is not a reason to stop notifying anybody for good.
-            Err(e) => eprintln!("treff: the outbox could not be drained: {e}"),
+            Err(e) => eprintln!("treff: the {kanal} outbox could not be drained: {e}"),
         }
         tokio::time::sleep(EVERY).await;
     }

@@ -23,7 +23,7 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.3.0** — everything below works and is covered by tests. It is in
+Early. **v0.3.1** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06; nobody but its author has posted in it
 yet. Search and notifications are the next stage.
 
@@ -91,6 +91,9 @@ escalation by typo.
 | `TREFF_SMTP_USERNAME` | optional |
 | `TREFF_SMTP_PASSWORD_FILE` | a **path**, never the password itself |
 | `TREFF_SMTP_STARTTLS` | default on; off is refused together with a password |
+| `TREFF_WEBHOOK_URL` | a second exit; one POST per post, JSON |
+| `TREFF_WEBHOOK_TOPIC` | put in the body as `topic` (ntfy wants it there) |
+| `TREFF_WEBHOOK_TOKEN_FILE` | a **path** to a bearer token, never the token |
 
 There is no redirect-URI setting. Each space is sent back to
 `https://<its host>/auth/callback`, so **register one redirect URI per space**

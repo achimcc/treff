@@ -224,6 +224,44 @@ in
       };
     };
 
+    webhook = {
+      url = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "https://ntfy.example.org/";
+        description = ''
+          A second exit, besides mail: one `POST` per post, with `title`,
+          `message`, `click` and — if set — `topic` as JSON. Generic on
+          purpose, so it fits ntfy, Gotify, a Matrix bridge or a script behind
+          a reverse proxy.
+
+          **The URL comes from here and nowhere else.** A webhook whose target
+          could be steered by something in a post would be an SSRF with a
+          friendly name; redirects are not followed either, so a `302` cannot
+          carry the token somewhere the operator never agreed to.
+        '';
+      };
+      topic = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "treff";
+        description = ''
+          Put in the JSON body as `topic`. ntfy wants it there when the body
+          is JSON; everything else ignores the field.
+        '';
+      };
+      tokenFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "%d/webhook";
+        description = ''
+          A **path** to a bearer token, never the token itself — the same rule
+          as every other secret here. A string rather than a path, so a
+          systemd specifier works with `LoadCredential`.
+        '';
+      };
+    };
+
     oidc = {
       issuer = lib.mkOption {
         type = lib.types.str;
@@ -320,6 +358,15 @@ in
       }
       // lib.optionalAttrs (cfg.mail.username != null) {
         TREFF_SMTP_USERNAME = cfg.mail.username;
+      }
+      // lib.optionalAttrs (cfg.webhook.url != null) {
+        TREFF_WEBHOOK_URL = cfg.webhook.url;
+      }
+      // lib.optionalAttrs (cfg.webhook.topic != null) {
+        TREFF_WEBHOOK_TOPIC = cfg.webhook.topic;
+      }
+      // lib.optionalAttrs (cfg.webhook.tokenFile != null) {
+        TREFF_WEBHOOK_TOKEN_FILE = cfg.webhook.tokenFile;
       }
       // lib.optionalAttrs (cfg.mail.passwordFile != null) {
         # INDEPENDENT OF `host`, and that is not an oversight. On a host where
