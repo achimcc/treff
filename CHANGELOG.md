@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5 — 2026-09-11
+
+- **A topic leads back to its category.** Whoever arrives from a mail, a
+  search or a bookmark stood in a dead end: the browser's back button is not a
+  design, and the front page is a level too far up. The line above the title
+  says where the topic lives and goes there.
+
 ## 0.3.4 — 2026-09-11
 
 - **The button that opens a form says how to close it again.** Open, it

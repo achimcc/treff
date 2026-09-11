@@ -405,6 +405,15 @@ pub fn topic_page(
 ) -> Markup {
     let may_reply = category.is_some_and(|c| crate::authz::may_reply(who, c));
     let body = html! {
+        // THE WAY BACK. A topic is reached from a mail, from a search or from
+        // a bookmark as often as from the list it belongs to, and without this
+        // line those arrivals are a dead end: the browser's back button is not
+        // a design, and the front page is a level too far up. Labelled with
+        // the place it leads to rather than with an arrow, like the `up` link
+        // in the header — the `../` in front of it comes from the stylesheet.
+        @if let Some(category) = category {
+            nav class="crumb" { a href={ "/c/" (category.slug) } { (category.title) } }
+        }
         h1 { (topic.title) }
         // A form and not a link: following changes something, and a GET that
         // changes state is one a link preview or a mail client can trigger

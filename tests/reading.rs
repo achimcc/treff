@@ -379,3 +379,44 @@ async fn a_topic_nobody_answered_names_its_author() {
 
     assert!(html.contains("Ada"), "{html}");
 }
+
+#[tokio::test]
+async fn a_topic_page_leads_back_to_its_category() {
+    // Arriving at a topic from a mail, a search or a bookmark used to be a
+    // dead end: the only way onwards was the browser's back button, which is
+    // not a design, or the front page, which is a level too far up.
+    let (dir, db, app) = setup_with_db().await;
+    let author = treff::authz::Identity {
+        subject: "s1".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let topic = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A question",
+        "the opening post",
+        &author,
+    )
+    .await
+    .expect("topic");
+
+    let cookie = signed_in(&db, dir.path(), "reader", &["Friends"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", &format!("/t/{topic}"), &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        html.contains("href=\"/c/general\""),
+        "no way back to the category: {html}"
+    );
+    assert!(
+        html.contains("General"),
+        "the link does not say where it leads: {html}"
+    );
+}

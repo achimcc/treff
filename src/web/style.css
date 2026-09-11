@@ -536,6 +536,18 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 .own button:hover { color: var(--text); border-color: var(--quiet); }
 
 
+/* --- The way back from a topic ------------------------------------------ */
+
+.crumb {
+    margin-bottom: .4rem;
+    font-family: var(--mono);
+    font-size: 13px;
+}
+
+.crumb a { color: var(--murmur); text-decoration: none; }
+.crumb a::before { content: "../"; opacity: .7; }
+.crumb a:hover { color: var(--on); }
+
 /* --- The question before deleting --------------------------------------- */
 
 .warn {
