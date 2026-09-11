@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.3 — 2026-09-11
+
+- **Forms wait to be asked for.** Opening a topic, replying, and editing your
+  own post each stand behind a control now instead of an open box: a list is
+  read far more often than it is written to, and a thread you had written in
+  read twice as long as anybody else's, because every post of yours carried
+  its whole text a second time in a textarea. Replying takes the picture
+  upload with it — answering in words and answering with a picture are one
+  intention, and asking which of the two you want before you may write either
+  makes two decisions out of one.
+- **Editing and deleting are icons in the post**, drawn as inline SVG rather
+  than borrowed from a font: `✎` is a hairline in one font and a coloured
+  emoji in the next, and an icon font would be the remote dependency this
+  project refuses.
+- **Deleting asks first.** The button used to act on the first click; there is
+  no `confirm()` on a page without JavaScript, so the question has a page of
+  its own at `GET /p/<id>/delete`. The GET changes nothing and refuses anybody
+  who may not press the button.
+- **A topic list says who wrote last.** It used to pair the name of whoever
+  OPENED the topic with the date of its last activity — two halves of two
+  different events, read as one line. Title, and under it in small type the
+  name and the date that belong together.
+
 ## 0.3.2 — 2026-09-07
 
 - **A new topic notifies too.** The queue was only filled on a reply. For mail
