@@ -302,38 +302,74 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 
 .categories .byline { grid-column: 1 / -1; margin: 0; }
 
+/* The title, and under it in small type who wrote last and when — the shape
+   a forum index has had for as long as there have been forum indexes. Side by
+   side the two columns read as a table of dates; stacked, the second line
+   plainly belongs to the first. A search hit is the same list element with a
+   third line under it, and it stacks for the same reason. */
 .topics li {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
+    display: grid;
+    gap: .15rem;
     padding: .8rem .2rem;
     border-bottom: 1px solid var(--edge);
 }
 
 .topics li a { text-decoration: none; }
 .topics li a::before { content: "> "; color: var(--murmur); }
-.topics .byline { margin: 0; white-space: nowrap; }
+/* `justify-self: start`, weil die Zeile in einem Grid steht: ohne das zoege
+   sich die Byline ueber die volle Breite und ihr Hover-Bereich mit ihr. */
+.topics .byline {
+    margin: 0;
+    justify-self: start;
+    white-space: nowrap;
+    font-size: 12px;
+}
 
 /* --- Writing ----------------------------------------------------------- */
 
-.write {
+/* Closed it is a button, open it is the box it used to be. The `<details>`
+   carries both, so that a form nobody is filling in does not leave an empty
+   frame around a single line. */
+.write { margin-top: 2.5rem; }
+
+.write[open] {
     display: grid;
     gap: .8rem;
-    margin-top: 2.5rem;
     padding: 1.4rem;
     border: 1px solid var(--edge);
     border-radius: 3px;
     background: var(--veil);
 }
 
-.write h2 {
-    margin: 0;
-    font-family: var(--mono);
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: .1em;
+.write > summary {
+    display: inline-block;
+    font: 600 13px/1 var(--mono);
+    letter-spacing: .08em;
     text-transform: uppercase;
+    padding: .7rem 1.4rem;
+    border: 1px solid var(--on);
+    border-radius: 3px;
     color: var(--on);
+    cursor: pointer;
+    /* Both spellings: the triangle is a list marker in Firefox and a
+       pseudo-element of its own in WebKit, and a button with a triangle in
+       front of it reads as a tree, not as a control. */
+    list-style: none;
+}
+
+.write > summary::-webkit-details-marker { display: none; }
+.write > summary::before { content: "$ "; opacity: .6; }
+.write > summary:hover { background: var(--on); color: var(--ground); }
+.write > summary:hover::before { opacity: .45; }
+
+.write > form { display: grid; gap: .8rem; }
+
+/* Answering in words and answering with a picture are one intention behind
+   one button — but two forms, because only one of them may be multipart. The
+   rule is the seam between them. */
+.write > form + form {
+    padding-top: 1rem;
+    border-top: 1px dashed var(--edge);
 }
 
 .write label {
@@ -417,6 +453,7 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 
 .own {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: .6rem;
     margin-top: 1.1rem;
@@ -424,12 +461,43 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
     border-top: 1px dashed var(--edge);
 }
 
+/* Open, the edit box takes the whole width and the second control moves
+   below it. Closed, both are icons side by side and the post ends in a
+   line barely taller than its own text. */
+.own .edit[open] { flex: 1 0 100%; }
+.own .edit[open] > summary { margin-bottom: .5rem; }
+
+.own summary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    color: var(--murmur);
+    cursor: pointer;
+    list-style: none;
+}
+
+.own summary::-webkit-details-marker { display: none; }
+.own summary:hover { color: var(--text); border-color: var(--quiet); }
+
+.own summary:focus-visible {
+    outline: none;
+    border-color: hsl(150 60% 40%);
+    box-shadow: 0 0 0 1px hsl(150 70% 45% / .45);
+}
+
+/* Drawn at 14px in a 16-unit box; `block` keeps the baseline gap of an inline
+   image out of a control that is exactly as tall as its border. */
+.icon { display: block; }
+
 /* `justify-self`, weil das Formular ein Grid ist: ohne das zieht sich ein
    Knopf mit zwei Wörtern über die ganze Spalte und sieht aus wie die
    Hauptsache der Seite. */
 .own form { display: grid; gap: .5rem; justify-items: start; }
 .own form textarea { width: 100%; }
-.own form:first-child { flex: 1; }
 
 .own button {
     font: 12px/1 var(--mono);

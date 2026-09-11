@@ -337,3 +337,38 @@ async fn an_edit_obeys_the_same_limits_as_a_new_post() {
         );
     }
 }
+
+#[tokio::test]
+async fn the_edit_box_waits_behind_an_icon() {
+    // Until this test every post of your own carried its whole text a second
+    // time, in an open box underneath it — a thread you had written in read
+    // twice as long as anyone else's.
+    let (dir, db, app) = setup_with_db().await;
+    let (topic, _opening, reply) = conversation(&db).await;
+
+    let cookie = signed_in(&db, dir.path(), "bob", &["Household"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", &format!("/t/{topic}"), &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        !html.contains("<details class=\"edit\" open"),
+        "the box is open before anybody asked: {html}"
+    );
+    let block = common::details_block(&html, "<details class=\"edit\">");
+    assert!(
+        block.contains("<svg"),
+        "the fold opens on a word, not on an icon: {block}"
+    );
+    assert!(
+        block.contains(&format!("/p/{reply}/edit")),
+        "the form is not behind the icon: {html}"
+    );
+    assert!(
+        block.contains("<textarea"),
+        "the text is not in the fold: {block}"
+    );
+}

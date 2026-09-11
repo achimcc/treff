@@ -384,3 +384,74 @@ async fn following_and_unfollowing_go_through_the_page() {
     let r = app.oneshot(elsewhere).await.expect("r");
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn the_new_topic_form_waits_behind_a_button() {
+    // A list is read far more often than it is written to, and until this
+    // test the writing form stood open under every one of them.
+    let (dir, db, app) = setup_with_db().await;
+    let member = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+
+    let html = body_of(
+        app.oneshot(get("forum.example.org", "/c/general", &member))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        !html.contains("<details class=\"write\" open"),
+        "the form stands open from the start: {html}"
+    );
+    let block = common::details_block(&html, "<details class=\"write\">");
+    assert!(block.contains("<summary"), "nothing to click on: {block}");
+    assert!(
+        block.contains("/c/general/new"),
+        "the form is not inside the fold: {html}"
+    );
+}
+
+#[tokio::test]
+async fn replying_and_attaching_a_picture_open_together() {
+    // Both are the same intention — answering in this thread — so they are
+    // behind the same fold. Two buttons would make two decisions out of one.
+    let (dir, db, app) = setup_with_db().await;
+    let author = treff::authz::Identity {
+        subject: "s1".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let topic = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A question",
+        "the opening post",
+        &author,
+    )
+    .await
+    .expect("topic");
+
+    let member = signed_in(&db, dir.path(), "bob", &["Household"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", &format!("/t/{topic}"), &member))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        !html.contains("<details class=\"write\" open"),
+        "the reply box stands open from the start: {html}"
+    );
+    let block = common::details_block(&html, "<details class=\"write\">");
+    assert!(
+        block.contains(&format!("/t/{topic}/reply")),
+        "the reply form is not behind the button: {html}"
+    );
+    assert!(
+        block.contains(&format!("/t/{topic}/attach")),
+        "the picture went behind a second button: {html}"
+    );
+}

@@ -238,6 +238,23 @@ pub struct TopicRow {
     pub first: Option<Post>,
 }
 
+/// The pencil that opens the edit box, drawn here rather than loaded.
+///
+/// An inline SVG and not a character: `✎` and `🗑` are rendered by whatever
+/// font the reader happens to have, from a hairline glyph to a coloured emoji,
+/// and an icon font would be the remote dependency this project does not take.
+/// `currentColor` makes it follow the text it sits next to, in both themes.
+fn icon_pencil() -> Markup {
+    html! {
+        svg class="icon" viewBox="0 0 16 16" width="14" height="14"
+            aria-hidden="true" focusable="false" {
+            path d="M11.2 1.8 14.2 4.8 5.6 13.4 1.8 14.2 2.6 10.4z"
+                 fill="none" stroke="currentColor" stroke-width="1.3"
+                 stroke-linejoin="round" {}
+        }
+    }
+}
+
 /// A space, rendered the way it is configured: a timeline shows the posts
 /// themselves, a topic list shows titles. Same data, one line of configuration
 /// apart.
@@ -312,17 +329,23 @@ pub fn space_page(
         }
         @if let Some(category) = category {
             @if may_post {
-                form class="write" method="post" action={ "/c/" (category.slug) "/new" } {
-                    h2 { (lang.t("new_topic")) }
-                    label {
-                        (lang.t("field_title"))
-                        input type="text" name="title" maxlength="200" required;
+                // BEHIND A FOLD, because a list is read far more often than it
+                // is written to. `<details>` and not a script: the page has no
+                // JavaScript at all, and the browser has had this element for
+                // a decade.
+                details class="write" {
+                    summary { (lang.t("new_topic")) }
+                    form method="post" action={ "/c/" (category.slug) "/new" } {
+                        label {
+                            (lang.t("field_title"))
+                            input type="text" name="title" maxlength="200" required;
+                        }
+                        label {
+                            (lang.t("field_text"))
+                            textarea name="body" rows="6" required {}
+                        }
+                        button type="submit" { (lang.t("open_topic")) }
                     }
-                    label {
-                        (lang.t("field_text"))
-                        textarea name="body" rows="6" required {}
-                    }
-                    button type="submit" { (lang.t("open_topic")) }
                 }
             }
         }
@@ -367,9 +390,17 @@ pub fn topic_page(
                 // query refuses the same thing again, on its own.
                 @if crate::authz::may_modify(who, &post.author_subject) {
                     div class="own" {
-                        form method="post" action={ "/p/" (post.id) "/edit" } {
-                            textarea name="body" rows="4" required { (post.body_markdown) }
-                            button type="submit" { (lang.t("save")) }
+                        // The text of your own post used to stand here a
+                        // second time, in an open box: a thread you had
+                        // written in read twice as long as anybody else's.
+                        details class="edit" {
+                            summary title=(lang.t("edit")) aria-label=(lang.t("edit")) {
+                                (icon_pencil())
+                            }
+                            form method="post" action={ "/p/" (post.id) "/edit" } {
+                                textarea name="body" rows="4" required { (post.body_markdown) }
+                                button type="submit" { (lang.t("save")) }
+                            }
                         }
                         form method="post" action={ "/p/" (post.id) "/delete" } {
                             button type="submit" class="danger" { (lang.t("delete")) }
@@ -379,24 +410,30 @@ pub fn topic_page(
             }
         }
         @if may_reply {
-            form class="write" method="post" action={ "/t/" (topic.id) "/reply" } {
-                label {
-                    (lang.t("reply"))
-                    textarea name="body" rows="5" required {}
+            // ONE FOLD FOR BOTH FORMS. Writing a few lines and adding a
+            // picture are the same intention — answering here — and asking
+            // which of the two you want before you may write either would
+            // make two decisions out of one. They stay two `<form>` elements
+            // because one of them must be `multipart/form-data` and the other
+            // must not; the fold is what the reader sees.
+            details class="write" {
+                summary { (lang.t("reply")) }
+                form method="post" action={ "/t/" (topic.id) "/reply" } {
+                    textarea name="body" rows="5" required aria-label=(lang.t("reply")) {}
+                    button type="submit" { (lang.t("post_reply")) }
                 }
-                button type="submit" { (lang.t("post_reply")) }
-            }
-            form class="write" method="post" enctype="multipart/form-data"
-                 action={ "/t/" (topic.id) "/attach" } {
-                label {
-                    (lang.t("attach_picture"))
-                    input type="file" name="file" accept="image/jpeg,image/png,image/gif,image/webp" required;
+                form method="post" enctype="multipart/form-data"
+                     action={ "/t/" (topic.id) "/attach" } {
+                    label {
+                        (lang.t("attach_picture"))
+                        input type="file" name="file" accept="image/jpeg,image/png,image/gif,image/webp" required;
+                    }
+                    label {
+                        (lang.t("caption"))
+                        input type="text" name="body";
+                    }
+                    button type="submit" { (lang.t("attach")) }
                 }
-                label {
-                    (lang.t("caption"))
-                    input type="text" name="body";
-                }
-                button type="submit" { (lang.t("attach")) }
             }
         }
     };

@@ -133,3 +133,21 @@ pub async fn body_of(response: axum::response::Response) -> String {
         .expect("body");
     String::from_utf8(bytes.to_vec()).expect("utf-8")
 }
+
+/// The markup of the `<details>` element whose opening tag is `open_tag`, up
+/// to its `</details>`.
+///
+/// Crude on purpose: no page nests one `<details>` in another, and pulling an
+/// HTML parser into the tree for one assertion would be a dependency bought
+/// with a test. Panics rather than returning an option — a test that wants
+/// this block and does not get it has already failed.
+pub fn details_block<'a>(html: &'a str, open_tag: &str) -> &'a str {
+    let start = html
+        .find(open_tag)
+        .unwrap_or_else(|| panic!("no {open_tag} in {html}"));
+    let rest = &html[start..];
+    let end = rest
+        .find("</details>")
+        .unwrap_or_else(|| panic!("unclosed {open_tag} in {html}"));
+    &rest[..end]
+}
