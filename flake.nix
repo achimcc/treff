@@ -19,6 +19,17 @@
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
           src = self;
           cargoLock.lockFile = ./Cargo.lock;
+
+          # THE TESTS NEED A TIME ZONE DATABASE, the build does not. Two of
+          # them convert a moment to `Europe/Berlin` to prove that summer time
+          # is not an hour the reader has to add, and the build sandbox has no
+          # `/etc/zoneinfo` to look it up in. `TZDIR` is where jiff looks
+          # first, so pointing it at the tzdata in the store is enough; in
+          # service the zone comes from the machine, which is the point.
+          nativeCheckInputs = [ pkgs.tzdata ];
+          preCheck = ''
+            export TZDIR=${pkgs.tzdata}/share/zoneinfo
+          '';
           meta = {
             description = "A small forum for closed groups, authenticated by your own OIDC provider";
             license = pkgs.lib.licenses.agpl3Only;

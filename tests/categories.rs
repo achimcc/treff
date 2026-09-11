@@ -147,6 +147,44 @@ async fn an_empty_category_is_listed_with_a_zero() {
 }
 
 #[tokio::test]
+async fn the_overview_says_when_something_last_happened_to_the_minute() {
+    // "zuletzt 2026-09-11" answers a question nobody asked twice in a day. A
+    // list of sections is read to find out where something is going on, and
+    // "this morning" and "a week ago" look the same without an hour on them.
+    let (dir, db, app) = setup_with_db().await;
+    let id = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A question",
+        "x",
+        &author(),
+    )
+    .await
+    .expect("topic");
+    // `updated_at` and not `created_at`: that is the column the overview
+    // takes its answer from.
+    sqlx::query("UPDATE topics SET updated_at = ? WHERE id = ?")
+        .bind(1_700_000_000i64)
+        .bind(id)
+        .execute(db.pool())
+        .await
+        .expect("backdate");
+
+    let cookie = signed_in(&db, dir.path(), "reader", &["Household"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", "/", &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+    assert!(
+        html.contains(&treff::clock::stamp(1_700_000_000, treff::clock::zone())),
+        "the last activity of a category still carries a bare date: {html}"
+    );
+}
+
+#[tokio::test]
 async fn the_counts_stop_at_the_space_boundary() {
     // The blog has a category called "notes"; a forum category must never
     // count anything from another address.

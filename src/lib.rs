@@ -8,6 +8,7 @@
 pub mod articles;
 pub mod auth;
 pub mod authz;
+pub mod clock;
 pub mod config;
 pub mod db;
 pub mod export;

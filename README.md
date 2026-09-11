@@ -33,6 +33,12 @@ One file describes the addresses. It is TOML, and unknown keys are an error —
 a typo fails at startup rather than quietly granting nothing.
 
 ```toml
+# Optional, and top-level: the zone every date and time is shown in, as an IANA
+# name. Left out, treff uses the machine's own zone — right whenever the server
+# stands where the people reading it do. A name treff cannot resolve stops it
+# at startup rather than putting every timestamp quietly an hour out.
+timezone = "Europe/Berlin"
+
 # The blog: articles come from files, everybody with an account comments.
 [[space]]
 host     = "blog.example.org"

@@ -3772,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "treff"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -3781,6 +3781,7 @@ dependencies = [
  "base64 0.23.1",
  "comrak",
  "hmac 0.13.0",
+ "jiff",
  "lettre",
  "maud",
  "openidconnect",

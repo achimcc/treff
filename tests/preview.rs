@@ -40,6 +40,40 @@ fn get(host: &str, uri: &str, cookie: &str) -> Request<Body> {
         .expect("request")
 }
 
+/// Spreads the fixture over a few days.
+///
+/// Everything above is written in the same second, and a preview in which
+/// every row carries the same minute cannot show what the topic list is now
+/// for: whether the opener and the last reply read apart, and whether a column
+/// of timestamps lines up. So the posts are dealt out backwards from today,
+/// nine hours apart, and each topic is moved to its own first and last post.
+async fn spread_over_a_few_days(db: &treff::db::Db) {
+    const STEP: i64 = 9 * 60 * 60;
+    let base = treff::db::topics::now() - 7 * 24 * 60 * 60;
+
+    sqlx::query("UPDATE posts SET created_at = ? + id * ?, updated_at = ? + id * ?")
+        .bind(base)
+        .bind(STEP)
+        .bind(base)
+        .bind(STEP)
+        .execute(db.pool())
+        .await
+        .expect("spread the posts");
+
+    // The topic follows its posts rather than the other way round: `created_at`
+    // is when it was opened, `updated_at` is what the list sorts on, and both
+    // are properties of a post.
+    sqlx::query(
+        "UPDATE topics SET
+            created_at = (SELECT min(created_at) FROM posts WHERE topic_id = topics.id),
+            updated_at = (SELECT max(created_at) FROM posts WHERE topic_id = topics.id)
+          WHERE EXISTS (SELECT 1 FROM posts WHERE topic_id = topics.id)",
+    )
+    .execute(db.pool())
+    .await
+    .expect("spread the topics");
+}
+
 #[tokio::test]
 #[ignore = "writes files for a human to look at; run with --ignored"]
 async fn render_the_pages_for_a_look() {
@@ -129,6 +163,8 @@ async fn render_the_pages_for_a_look() {
     )
     .await
     .expect("b2");
+
+    spread_over_a_few_days(&db).await;
 
     let cookie = signed_in(&db, dir.path(), "s1", &["Household"]).await;
     let out = std::env::var("PREVIEW_DIR").unwrap_or_else(|_| "target/preview".into());

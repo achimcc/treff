@@ -45,6 +45,10 @@ pub struct Topic {
 pub struct LastPost {
     pub author_name: String,
     pub created_at: i64,
+    /// True when nobody has answered yet — the latest post is still the one
+    /// that opened the topic. A list with a column headed "last reply" has to
+    /// know, or it credits the opener with an answer they never wrote.
+    pub opens_the_topic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -349,7 +353,8 @@ pub async fn list_topics(
         // they are read in; a backdated article must not jump the queue.
         "SELECT t.*,
                 p.author_name AS last_author_name,
-                p.created_at  AS last_created_at
+                p.created_at  AS last_created_at,
+                p.id = (SELECT min(id) FROM posts WHERE topic_id = t.id) AS last_opens
            FROM topics t
            LEFT JOIN posts p ON p.id = (SELECT max(id) FROM posts WHERE topic_id = t.id)
           WHERE t.space = ? AND t.category = ? AND t.hidden = 0
@@ -372,6 +377,11 @@ pub async fn list_topics(
                 .map(|author_name| LastPost {
                     author_name,
                     created_at: row.get("last_created_at"),
+                    // `min(id)` and not `created_at`: the order posts were
+                    // written in is the order their identifiers were handed
+                    // out in, and a backdated article shares its second with
+                    // nothing.
+                    opens_the_topic: row.get::<i64, _>("last_opens") != 0,
                 });
             (topic_from(row), last)
         })
@@ -683,6 +693,10 @@ mod tests {
         let last = last.as_ref().expect("a topic always has a post");
         assert_eq!(last.author_name, "Bob");
         assert_eq!(last.created_at, 1_700_000_000);
+        assert!(
+            !last.opens_the_topic,
+            "a reply was written, so the latest post is not the opening one"
+        );
     }
 
     #[tokio::test]
@@ -694,6 +708,15 @@ mod tests {
 
         let list = list_topics(&db, "a", "k", 10, 0).await.expect("list");
         let (_, last) = &list[0];
-        assert_eq!(last.as_ref().expect("a post").author_name, "Ada");
+        let last = last.as_ref().expect("a post");
+        assert_eq!(last.author_name, "Ada");
+        // The list has a column headed "last reply", and the opening post is
+        // not one. Without this flag the view would have to guess from the
+        // timestamps, and two posts written in the same second would make it
+        // guess wrong.
+        assert!(
+            last.opens_the_topic,
+            "nobody answered, so the latest post is still the opening one"
+        );
     }
 }

@@ -101,6 +101,19 @@ async fn serve() -> anyhow::Result<()> {
     })?;
     let config = treff::config::Config::parse(&std::fs::read_to_string(&config_path)?)?;
 
+    // THE CLOCK GETS ITS PLACE HERE, once, before anything is rendered. An
+    // unusable name has already stopped `Config::parse`; what is left to do is
+    // fix the answer for the life of the process, so that two pages cannot
+    // disagree about what time it is, and to say which place it is — the one
+    // line that lets an operator see a wrong `TZ` without having to notice it
+    // in a byline first.
+    let zone = treff::clock::resolve(config.timezone.as_deref())?;
+    eprintln!(
+        "treff: timestamps are shown in {}",
+        zone.iana_name().unwrap_or("an unnamed zone")
+    );
+    treff::clock::install(zone);
+
     let data_dir = env_path("TREFF_DATA_DIR", "/var/lib/treff");
     std::fs::create_dir_all(&data_dir)?;
     let db = treff::db::Db::open(&data_dir.join("treff.db")).await?;

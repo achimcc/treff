@@ -19,6 +19,8 @@ pub enum ConfigError {
     DuplicateCategory { space: String, slug: String },
     #[error("space {space} has the unusable category slug {slug:?}")]
     InvalidSlug { space: String, slug: String },
+    #[error("no time zone is called {0:?}")]
+    UnknownTimeZone(String),
 }
 
 /// A slug becomes a path segment (`/c/<slug>`), so it is held to the strict
@@ -106,6 +108,16 @@ impl Space {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// The zone every timestamp in the interface is shown in, as an IANA name
+    /// — `Europe/Berlin`, not an offset. Left out, the machine decides (`TZ`,
+    /// `/etc/localtime`), which is the right answer whenever the server stands
+    /// where the people do.
+    ///
+    /// Not per space and not per reader: a forum for a closed circle is read
+    /// in the circle's own time, and a second mechanism for that would be a
+    /// setting nobody asked for.
+    #[serde(default)]
+    pub timezone: Option<String>,
     #[serde(rename = "space", default)]
     pub spaces: Vec<Space>,
 }
@@ -120,6 +132,16 @@ fn normalise(host: &str) -> String {
 impl Config {
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
         let mut c: Config = toml::from_str(text)?;
+
+        // Checked HERE and not where the first page is rendered: a name with a
+        // typo in it must stop the program while somebody is still watching
+        // the logs, not show up as timestamps that are silently two hours out.
+        if let Some(name) = c.timezone.as_deref()
+            && crate::clock::resolve(Some(name)).is_err()
+        {
+            return Err(ConfigError::UnknownTimeZone(name.to_string()));
+        }
+
         for s in &mut c.spaces {
             s.host = normalise(&s.host);
         }
@@ -189,6 +211,33 @@ read  = ["Household", "Friends"]
   post  = ["Household", "Friends"]
   reply = ["Household", "Friends"]
 "#;
+
+    #[test]
+    fn a_configuration_without_a_zone_leaves_the_choice_to_the_machine() {
+        let c = Config::parse(EXAMPLE).expect("valid");
+        assert_eq!(c.timezone, None);
+    }
+
+    #[test]
+    fn a_named_zone_is_read_and_kept() {
+        let mut text = String::from("timezone = \"Europe/Berlin\"\n");
+        text.push_str(EXAMPLE);
+        let c = Config::parse(&text).expect("valid");
+        assert_eq!(c.timezone.as_deref(), Some("Europe/Berlin"));
+    }
+
+    #[test]
+    fn a_zone_nobody_has_heard_of_stops_the_program() {
+        // Fail closed, like every other unusable value in this file. Falling
+        // back to UTC would put every timestamp in the forum an hour or two
+        // beside the truth, and nothing would say so.
+        let mut text = String::from("timezone = \"Mittelerde/Auenland\"\n");
+        text.push_str(EXAMPLE);
+        assert!(matches!(
+            Config::parse(&text),
+            Err(ConfigError::UnknownTimeZone(_))
+        ));
+    }
 
     #[test]
     fn reads_two_spaces() {

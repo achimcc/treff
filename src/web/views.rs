@@ -124,7 +124,7 @@ pub fn category_index(
                         @match count.last_activity {
                             Some(t) => {
                                 (lang.t("last_activity")) " "
-                                span class="value" { (crate::web::views::day(t)) }
+                                span class="value" { (crate::web::views::moment(t)) }
                             },
                             None => (lang.t("no_topics_yet")),
                         }
@@ -160,7 +160,7 @@ pub fn search_page(
                         span class="byline" {
                             span class="name" { (hit.category) }
                             span class="sep" { " · " }
-                            (day(hit.updated_at))
+                            (moment(hit.updated_at))
                         }
                         p class="snippet" { (hit.snippet) }
                     }
@@ -220,14 +220,17 @@ fn bare(space: &Space, lang: Lang, title: &str, body: Markup) -> Markup {
     }
 }
 
-/// A timestamp as a plain day. No clock: in a forum for a closed circle the
-/// hour is noise, and a date needs no time-zone argument. Hand-rolling this
-/// would mean hand-rolling leap years, so it goes through `time`, which is in
-/// the tree anyway for the cookies.
-pub fn day(unix_seconds: i64) -> String {
-    time::OffsetDateTime::from_unix_timestamp(unix_seconds)
-        .map(|t| t.date().to_string())
-        .unwrap_or_else(|_| String::from("unknown"))
+/// A timestamp as the day and the hour.
+///
+/// It used to be the day alone, on the argument that in a forum for a closed
+/// circle the hour is noise. It is not: a thread that moved this morning and
+/// one that moved a week ago last Tuesday both read as a bare date, and two
+/// posts written in the same afternoon lose the order they were written in —
+/// which is the one day the order is worth anything. What the bare date really
+/// avoided was the time-zone question, and [`crate::clock`] answers that now
+/// instead of dodging it.
+pub fn moment(unix_seconds: i64) -> String {
+    crate::clock::stamp(unix_seconds, crate::clock::zone())
 }
 
 /// One line of a space: the topic, whoever wrote in it last, and — in a
@@ -282,7 +285,7 @@ pub fn delete_question_page(space: &Space, who: &Identity, lang: Lang, post: &Po
             p class="byline" {
                 span class="name" { (post.author_name) }
                 span class="sep" { " · " }
-                (day(post.created_at))
+                (moment(post.created_at))
             }
             div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
         }
@@ -327,7 +330,7 @@ pub fn space_page(
                         p class="byline" {
                             span class="name" { (topic.author_name) }
                             span class="sep" { " · " }
-                            (day(topic.created_at))
+                            (moment(topic.created_at))
                         }
                         @if let Some(post) = first {
                             div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
@@ -336,31 +339,64 @@ pub fn space_page(
                 }
             }
             View::Topics => {
-                ul class="topics" {
-                    @for TopicRow { topic, last, .. } in topics {
-                        li {
-                            a href={ "/t/" (topic.id) } { (topic.title) }
-                            // WHO WROTE LAST, AND WHEN — not the opener next
-                            // to the date of somebody else's reply. Those are
-                            // two halves of two different events, and the line
-                            // said them as one until 2026-09-11.
-                            span class="byline" {
-                                @match last {
-                                    Some(last) => {
-                                        span class="name" { (last.author_name) }
-                                        span class="sep" { " · " }
-                                        (day(last.created_at))
-                                    },
-                                    // Constructively unreachable — a topic
-                                    // always has its opening post. A byline
-                                    // that falls back to the topic's own
-                                    // beginning is still true; an empty one
-                                    // would look like a bug.
-                                    None => {
+                // A TABLE, and not a list with a heading pinned over it.
+                //
+                // Two events per row — the thread was opened, the thread was
+                // last answered — each with a name and a moment, under a
+                // heading that says which is which. That is a table by every
+                // definition the word has, and writing it as a `<ul>` would
+                // mean holding two columns in line by hand and telling a
+                // screen reader nothing about what the second one means.
+                //
+                // Until 2026-09-11 this line showed one of the two and hid
+                // the other: first the opener next to the date of somebody
+                // else's reply, then — correctly but half-blind — only
+                // whoever wrote last. Both halves are asked after.
+                table class="threads" {
+                    thead {
+                        tr {
+                            th scope="col" { (lang.t("col_topic")) }
+                            th scope="col" { (lang.t("col_last_reply")) }
+                        }
+                    }
+                    tbody {
+                        @for TopicRow { topic, last, .. } in topics {
+                            // `opens_the_topic` and not "is there a post":
+                            // every topic has one. What this column promises
+                            // is a REPLY, and the opening post is not one —
+                            // printing it here would credit the opener with an
+                            // answer they never wrote and make every silent
+                            // thread look like a conversation.
+                            @let answer = last.as_ref().filter(|last| !last.opens_the_topic);
+                            tr {
+                                td class="subject" {
+                                    a href={ "/t/" (topic.id) } { (topic.title) }
+                                    p class="byline" {
                                         span class="name" { (topic.author_name) }
                                         span class="sep" { " · " }
-                                        (day(topic.created_at))
-                                    },
+                                        (moment(topic.created_at))
+                                    }
+                                }
+                                // The heading is repeated on the cell because
+                                // a phone cannot show the two columns side by
+                                // side: stacked, the stylesheet hides the
+                                // heading row and prints this instead. It
+                                // comes from the catalogue, not from the CSS,
+                                // because the interface has two languages and
+                                // a stylesheet has none.
+                                //
+                                // And only where there IS an answer: "last
+                                // reply: no replies yet" says the same thing
+                                // twice and reads like a stutter.
+                                td class="latest"
+                                   data-label=[answer.map(|_| lang.t("col_last_reply"))] {
+                                    @match answer {
+                                        Some(last) => {
+                                            span class="name" { (last.author_name) }
+                                            span class="when" { (moment(last.created_at)) }
+                                        },
+                                        None => span class="none" { (lang.t("no_replies_yet")) },
+                                    }
                                 }
                             }
                         }
@@ -432,7 +468,7 @@ pub fn topic_page(
                 p class="byline" {
                     span class="name" { (post.author_name) }
                     span class="sep" { " · " }
-                    (day(post.created_at))
+                    (moment(post.created_at))
                     @if post.edited { " (" (lang.t("edited")) ")" }
                 }
                 div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }

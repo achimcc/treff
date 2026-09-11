@@ -1,6 +1,6 @@
 [package]
 name = "treff"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "A small forum for closed groups, authenticated by your own OIDC provider"
@@ -17,6 +17,7 @@ axum-extra = { version = "0.12.6", features = ["cookie-private"] }
 base64 = "0.23.1"
 comrak = "0.54.0"
 hmac = "0.13.0"
+jiff = "0.2.35"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "tokio1-rustls", "rustls-native-certs", "pool", "ring"] }
 maud = { version = "0.27.0", features = ["axum"] }
 openidconnect = "4.0.1"

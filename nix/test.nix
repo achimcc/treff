@@ -34,10 +34,16 @@ pkgs.testers.runNixOSTest {
     {
       imports = [ module ];
 
+      # The machine keeps UTC while the forum is read in Berlin — the case the
+      # option exists for, and the one that proves the zone comes from the
+      # configuration rather than from `/etc/localtime`.
+      time.timeZone = "UTC";
+
       services.treff = {
         enable = true;
         inherit package;
         listen = "127.0.0.1:8080";
+        timezone = "Europe/Berlin";
         oidc = {
           issuer = "https://auth.example.org/application/o/treff/";
           clientId = "treff";
@@ -145,6 +151,16 @@ pkgs.testers.runNixOSTest {
     # future did not.
     journal = machine.succeed("journalctl -u treff.service --no-pager")
     assert "1 articles" in journal, f"the article was not mirrored: {journal}"
+
+    # THE NAMED ZONE RESOLVES INSIDE THE HARDENED UNIT. `ProtectSystem =
+    # "strict"` leaves /etc readable, so the zone database is there — but that
+    # is a claim about systemd, and this is the measurement. The machine keeps
+    # UTC; if the name had not resolved, treff would have stopped at startup
+    # rather than serving a page two hours beside the truth.
+    assert "shown in Europe/Berlin" in journal, (
+        f"the configured zone did not reach the service: {journal}"
+    )
+    machine.succeed(f"grep -q 'timezone = \"Europe/Berlin\"' {config_path}")
 
     # And the state that must survive a restart does. The cookie key is
     # generated once; if it were made up per start, every restart would sign

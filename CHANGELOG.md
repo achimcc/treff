@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.6 — 2026-09-11
+
+- **A topic list says who opened a thread AND who answered last.** It carried
+  one of the two and hid the other: first the opener's name next to the date
+  of somebody else's reply, then — correctly, but half-blind — only whoever
+  wrote last. Both are asked after, so the list is a table now: the title with
+  its opener underneath, and beside it a column headed "last reply". A thread
+  nobody has answered says so instead of crediting its opener with an answer
+  they never wrote. On a phone the two columns stack, and the reply carries
+  the heading's own word with it.
+- **Every date carries the hour and the minute.** A bare date made a thread
+  answered this morning look like one answered a week ago last Tuesday, and
+  lost the order of two posts written in the same afternoon — the one day the
+  order is worth reading. Posts, the topic list and the list of sections all
+  say the time now.
+- **A clock needs a place, so treff names one.** Timestamps used to be
+  rendered in UTC, which a bare date hid; shown with an hour, that is wrong by
+  an hour or two for everybody it does not fit. The zone is the machine's own
+  unless `timezone` (or `services.treff.timezone`) names another, it is fixed
+  once at startup, and a name treff cannot resolve stops it there rather than
+  putting every timestamp quietly beside the truth. See
+  `docs/decisions/0003-a-clock-needs-a-place.md`.
+
 ## 0.3.5 — 2026-09-11
 
 - **A topic leads back to its category.** Whoever arrives from a mail, a

@@ -23,6 +23,38 @@ fn get(host: &str, uri: &str, cookie: &str) -> Request<Body> {
         .expect("request")
 }
 
+/// Two moments far enough apart to tell one from the other, and fixed rather
+/// than "now", so that what a page prints can be asserted rather than guessed.
+const OPENED: i64 = 1_700_000_000;
+const ANSWERED: i64 = 1_700_086_400;
+
+async fn backdate_topic(db: &treff::db::Db, topic: i64, at: i64) {
+    sqlx::query("UPDATE topics SET created_at = ? WHERE id = ?")
+        .bind(at)
+        .bind(topic)
+        .execute(db.pool())
+        .await
+        .expect("backdate the topic");
+}
+
+async fn backdate_post(db: &treff::db::Db, post: i64, at: i64) {
+    sqlx::query("UPDATE posts SET created_at = ? WHERE id = ?")
+        .bind(at)
+        .bind(post)
+        .execute(db.pool())
+        .await
+        .expect("backdate the post");
+}
+
+async fn backdate_post_of_topic(db: &treff::db::Db, topic: i64, at: i64) {
+    sqlx::query("UPDATE posts SET created_at = ? WHERE topic_id = ?")
+        .bind(at)
+        .bind(topic)
+        .execute(db.pool())
+        .await
+        .expect("backdate the posts");
+}
+
 #[tokio::test]
 async fn a_timeline_shows_the_posts_themselves() {
     let (dir, db, app) = setup_with_db().await;
@@ -297,11 +329,12 @@ async fn a_search_finds_only_what_this_address_holds() {
 }
 
 #[tokio::test]
-async fn a_topic_list_names_whoever_wrote_last() {
-    // Until this test the list showed the name of whoever OPENED the topic
-    // next to the date of its last activity: two halves of two different
-    // events. Whoever reads a list wants to know where something is going on,
-    // and that is the latest post.
+async fn a_topic_list_shows_the_opener_and_the_last_reply_side_by_side() {
+    // One line used to carry the name of whoever wrote LAST and nothing about
+    // who started the thing — the opposite half of the mistake it replaced in
+    // September 2026, when it carried the opener's name next to somebody
+    // else's date. Both are events, both are asked after, and the answer is
+    // two columns rather than a choice between them.
     let (dir, db, app) = setup_with_db().await;
     let opener = treff::authz::Identity {
         subject: "s1".into(),
@@ -325,9 +358,11 @@ async fn a_topic_list_names_whoever_wrote_last() {
     )
     .await
     .expect("topic");
-    treff::db::topics::add_reply(&db, topic, "an answer", &answerer)
+    let reply = treff::db::topics::add_reply(&db, topic, "an answer", &answerer)
         .await
         .expect("reply");
+    backdate_topic(&db, topic, OPENED).await;
+    backdate_post(&db, reply, ANSWERED).await;
 
     let cookie = signed_in(&db, dir.path(), "reader", &["Friends"]).await;
     let html = body_of(
@@ -338,19 +373,34 @@ async fn a_topic_list_names_whoever_wrote_last() {
     .await;
 
     assert!(
+        html.contains("Ada"),
+        "the list does not say who opened the topic: {html}"
+    );
+    assert!(
         html.contains("Bob"),
         "the list does not say who answered last: {html}"
     );
+    // The two stamps are built with the same function the page uses, on
+    // purpose: what is at stake HERE is that the route prints a whole moment
+    // for each of the two events. That the conversion itself is right is
+    // settled in `clock`, against a named zone rather than against whatever
+    // zone this machine believes in.
+    let zone = treff::clock::zone();
     assert!(
-        !html.contains("Ada"),
-        "the list still names the opener next to a foreign date: {html}"
+        html.contains(&treff::clock::stamp(OPENED, zone)),
+        "the opening of the topic has no time on it: {html}"
+    );
+    assert!(
+        html.contains(&treff::clock::stamp(ANSWERED, zone)),
+        "the last reply has no time on it: {html}"
     );
 }
 
 #[tokio::test]
-async fn a_topic_nobody_answered_names_its_author() {
-    // The opening post IS the latest post then, so the line reads the way it
-    // always did — no special case in the view.
+async fn a_topic_nobody_answered_has_nothing_in_the_reply_column() {
+    // The opening post is not a reply. Repeating it under "last reply" would
+    // credit the opener with an answer they never wrote, and make every silent
+    // thread look like a conversation.
     let (dir, db, app) = setup_with_db().await;
     let opener = treff::authz::Identity {
         subject: "s1".into(),
@@ -358,7 +408,7 @@ async fn a_topic_nobody_answered_names_its_author() {
         groups: vec!["Household".into()],
         email: None,
     };
-    treff::db::topics::create_topic(
+    let topic = treff::db::topics::create_topic(
         &db,
         "forum.example.org",
         "general",
@@ -368,6 +418,7 @@ async fn a_topic_nobody_answered_names_its_author() {
     )
     .await
     .expect("topic");
+    backdate_topic(&db, topic, OPENED).await;
 
     let cookie = signed_in(&db, dir.path(), "reader", &["Friends"]).await;
     let html = body_of(
@@ -378,6 +429,52 @@ async fn a_topic_nobody_answered_names_its_author() {
     .await;
 
     assert!(html.contains("Ada"), "{html}");
+    assert!(
+        html.contains("no replies yet"),
+        "a thread nobody answered should say so: {html}"
+    );
+    assert_eq!(
+        html.matches("Ada").count(),
+        1,
+        "the opener is repeated as the last answerer: {html}"
+    );
+}
+
+#[tokio::test]
+async fn a_post_carries_the_hour_and_not_only_the_day() {
+    // Two posts on the same day used to be indistinguishable in time, which
+    // is exactly when the order matters most.
+    let (dir, db, app) = setup_with_db().await;
+    let author = treff::authz::Identity {
+        subject: "s1".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let topic = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A question",
+        "the opening post",
+        &author,
+    )
+    .await
+    .expect("topic");
+    backdate_post_of_topic(&db, topic, OPENED).await;
+
+    let cookie = signed_in(&db, dir.path(), "reader", &["Friends"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", &format!("/t/{topic}"), &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        html.contains(&treff::clock::stamp(OPENED, treff::clock::zone())),
+        "the byline of a post still carries a bare date: {html}"
+    );
 }
 
 #[tokio::test]

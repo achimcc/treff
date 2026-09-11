@@ -134,9 +134,12 @@ let
   // lib.optionalAttrs (space.articles != null) { articles = toString space.articles; }
   // lib.optionalAttrs (space.home != null) { home = space.home; };
 
-  spacesFile = (pkgs.formats.toml { }).generate "treff-spaces.toml" {
-    space = map toToml cfg.spaces;
-  };
+  spacesFile = (pkgs.formats.toml { }).generate "treff-spaces.toml" (
+    {
+      space = map toToml cfg.spaces;
+    }
+    // lib.optionalAttrs (cfg.timezone != null) { timezone = cfg.timezone; }
+  );
 in
 {
   options.services.treff = {
@@ -161,6 +164,23 @@ in
       type = lib.types.path;
       default = "/var/lib/treff";
       description = "Database, cookie key and attachments.";
+    };
+
+    timezone = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "Europe/Berlin";
+      description = ''
+        The zone every date and time in the interface is shown in, as an IANA
+        name. Left at null, treff uses the machine's own zone — which is the
+        right answer whenever the server stands where the people reading it
+        do, and needs nothing set here.
+
+        Set it where it does not: a machine in a rented rack keeping UTC,
+        serving a circle that lives somewhere else. A name treff cannot
+        resolve stops the service at startup rather than putting every
+        timestamp quietly an hour beside the truth.
+      '';
     };
 
     spaces = lib.mkOption {
