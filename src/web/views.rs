@@ -255,6 +255,47 @@ fn icon_pencil() -> Markup {
     }
 }
 
+/// The waste basket that leads to the question before deleting.
+fn icon_bin() -> Markup {
+    html! {
+        svg class="icon" viewBox="0 0 16 16" width="14" height="14"
+            aria-hidden="true" focusable="false" {
+            path d="M2.5 4h11M6 4V2.5h4V4M3.8 4l.7 9.5h7l.7-9.5M6.5 6.5v5M9.5 6.5v5"
+                 fill="none" stroke="currentColor" stroke-width="1.3"
+                 stroke-linecap="round" stroke-linejoin="round" {}
+        }
+    }
+}
+
+/// The question asked before a post goes, and the only place the button that
+/// removes it lives.
+///
+/// It shows the post itself: "delete this?" about something the reader cannot
+/// see is a question nobody can answer. The way back is a link to the topic,
+/// so that leaving is as easy as arriving — the browser's back button is not
+/// a design.
+pub fn delete_question_page(space: &Space, who: &Identity, lang: Lang, post: &Post) -> Markup {
+    let body = html! {
+        h1 { (lang.t("delete_title")) }
+        p class="warn" { (lang.t("delete_question")) }
+        article class="post" {
+            p class="byline" {
+                span class="name" { (post.author_name) }
+                span class="sep" { " · " }
+                (day(post.created_at))
+            }
+            div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
+        }
+        div class="decide" {
+            form method="post" action={ "/p/" (post.id) "/delete" } {
+                button type="submit" class="danger" { (lang.t("delete")) }
+            }
+            a class="back" href={ "/t/" (post.topic_id) } { (lang.t("cancel")) }
+        }
+    };
+    layout(space, who, lang, lang.t("delete_title"), body)
+}
+
 /// A space, rendered the way it is configured: a timeline shows the posts
 /// themselves, a topic list shows titles. Same data, one line of configuration
 /// apart.
@@ -402,8 +443,14 @@ pub fn topic_page(
                                 button type="submit" { (lang.t("save")) }
                             }
                         }
-                        form method="post" action={ "/p/" (post.id) "/delete" } {
-                            button type="submit" class="danger" { (lang.t("delete")) }
+                        // A LINK TO THE QUESTION, not a button that acts. An
+                        // icon that deletes on the first click is one
+                        // mis-click wide, and a page without JavaScript has
+                        // no `confirm()` to catch it. The GET changes
+                        // nothing; the button on the page it leads to does.
+                        a class="danger" href={ "/p/" (post.id) "/delete" }
+                          title=(lang.t("delete")) aria-label=(lang.t("delete")) {
+                            (icon_bin())
                         }
                     }
                 }

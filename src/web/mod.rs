@@ -823,6 +823,34 @@ async fn edit_post(
     }
 }
 
+/// The page that asks before a post goes.
+///
+/// It refuses whoever may not press the button rather than leaving that to the
+/// POST: display follows the right here as everywhere else, and a question
+/// that leads to a 403 is a small lie.
+async fn delete_question(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    lang: crate::i18n::Lang,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    let post = match crate::db::topics::load_post(&app.db, &space.host, id).await {
+        // Scoped by space in the query, so a post from the other address is
+        // simply not there.
+        Ok(None) => return not_found(),
+        Ok(Some(post)) => post,
+        Err(e) => return server_error("cannot load a post", &e),
+    };
+    if !crate::authz::may_modify(&who, &post.author_subject) {
+        return forbidden();
+    }
+    crate::web::views::delete_question_page(&space, &who, lang, &post).into_response()
+}
+
 async fn delete_post(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
@@ -1054,7 +1082,8 @@ pub fn router(state: AppState) -> Router {
         .route("/t/{id}/follow", axum::routing::post(follow))
         .route("/t/{id}/unfollow", axum::routing::post(unfollow))
         .route("/p/{id}/edit", axum::routing::post(edit_post))
-        .route("/p/{id}/delete", axum::routing::post(delete_post))
+        // One address, two methods: the GET asks, the POST acts.
+        .route("/p/{id}/delete", get(delete_question).post(delete_post))
         // Two limits, and both are needed. This one protects memory and is
         // deliberately far above any sensible picture; the configured
         // per-space limit below it gives the answer a person can act on.

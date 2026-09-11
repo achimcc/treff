@@ -467,7 +467,9 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 .own .edit[open] { flex: 1 0 100%; }
 .own .edit[open] > summary { margin-bottom: .5rem; }
 
-.own summary {
+/* The pencil and the basket are the same control twice: one opens a fold,
+   the other follows a link, and a reader should not have to know which. */
+.own summary, .own .danger {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -476,14 +478,21 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
     border: 1px solid var(--edge);
     border-radius: 3px;
     color: var(--murmur);
+    text-decoration: none;
     cursor: pointer;
     list-style: none;
 }
 
 .own summary::-webkit-details-marker { display: none; }
-.own summary:hover { color: var(--text); border-color: var(--quiet); }
 
-.own summary:focus-visible {
+.own summary:hover, .own .danger:hover { color: var(--text); border-color: var(--quiet); }
+
+/* Deleting is the one thing here that cannot be taken back, so it is the one
+   control that carries the second signal colour — on hover, not at rest: a
+   control that shouts before it is reached for is just noise. */
+.own .danger:hover { color: var(--off); border-color: var(--off); }
+
+.own summary:focus-visible, .own .danger:focus-visible {
     outline: none;
     border-color: hsl(150 60% 40%);
     box-shadow: 0 0 0 1px hsl(150 70% 45% / .45);
@@ -513,10 +522,45 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 
 .own button:hover { color: var(--text); border-color: var(--quiet); }
 
-/* Deleting is the one thing here that cannot be taken back, so it is the one
-   control that carries the second signal colour — on hover, not at rest: a
-   button that shouts before it is reached for is just noise. */
-.own button.danger:hover { color: var(--off); border-color: var(--off); }
+
+/* --- The question before deleting --------------------------------------- */
+
+.warn {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: .04em;
+    color: var(--murmur);
+}
+
+.decide {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    margin-top: 1.6rem;
+}
+
+/* Here the colour is at rest and not on hover: this button is the whole
+   point of the page, and what it does is the one thing that cannot be taken
+   back. */
+.decide button.danger {
+    font: 600 13px/1 var(--mono);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .7rem 1.4rem;
+    border: 1px solid var(--off);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--off);
+    cursor: pointer;
+}
+
+.decide button.danger:hover { background: var(--off); color: var(--ground); }
+
+.decide .back {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--murmur);
+}
 
 /* --- Prose ------------------------------------------------------------- */
 

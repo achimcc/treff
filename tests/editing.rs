@@ -372,3 +372,118 @@ async fn the_edit_box_waits_behind_an_icon() {
         "the text is not in the fold: {block}"
     );
 }
+
+#[tokio::test]
+async fn the_delete_control_leads_to_a_question_rather_than_acting() {
+    // An icon that deletes on the first click is one mis-click wide, and
+    // without JavaScript there is no `confirm()` to catch it. The icon is a
+    // link; only the button on the page it leads to acts.
+    let (dir, db, app) = setup_with_db().await;
+    let (topic, _opening, reply) = conversation(&db).await;
+
+    let cookie = signed_in(&db, dir.path(), "bob", &["Household"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", &format!("/t/{topic}"), &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        html.contains(&format!("href=\"/p/{reply}/delete\"")),
+        "no link to the question: {html}"
+    );
+    assert!(
+        !html.contains(&format!("action=\"/p/{reply}/delete\"")),
+        "the thread page still deletes on one click: {html}"
+    );
+}
+
+#[tokio::test]
+async fn the_question_shows_what_would_go_and_removes_nothing() {
+    // A GET must not change anything: a link preview, a prefetching browser
+    // or a mail client would otherwise delete posts nobody clicked on.
+    let (dir, db, app) = setup_with_db().await;
+    let topic = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A question",
+        "the opening post",
+        &who("ada"),
+    )
+    .await
+    .expect("topic");
+    let reply = treff::db::topics::add_reply(&db, topic, "the words that would go", &who("bob"))
+        .await
+        .expect("reply");
+
+    let cookie = signed_in(&db, dir.path(), "bob", &["Household"]).await;
+    let response = app
+        .oneshot(get(
+            "forum.example.org",
+            &format!("/p/{reply}/delete"),
+            &cookie,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let html = body_of(response).await;
+    assert!(
+        html.contains("the words that would go"),
+        "the question does not show what it is about: {html}"
+    );
+    assert!(
+        html.contains(&format!("action=\"/p/{reply}/delete\"")),
+        "the question has no button that acts: {html}"
+    );
+    assert!(
+        html.contains(&format!("href=\"/t/{topic}\"")),
+        "no way back from the question: {html}"
+    );
+
+    let (_, posts) = treff::db::topics::load_topic(&db, "forum.example.org", topic)
+        .await
+        .expect("load")
+        .expect("present");
+    assert_eq!(posts.len(), 2, "asking the question deleted the post");
+}
+
+#[tokio::test]
+async fn nobody_is_asked_about_somebody_elses_post() {
+    // Display follows the right here too: the page that offers the button
+    // refuses whoever may not press it, rather than letting the POST do it.
+    let (dir, db, app) = setup_with_db().await;
+    let (_topic, _opening, reply) = conversation(&db).await;
+
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let response = app
+        .oneshot(get(
+            "forum.example.org",
+            &format!("/p/{reply}/delete"),
+            &ada,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn the_question_is_not_asked_through_the_wrong_space() {
+    // The space is part of the condition on every path that touches a post,
+    // and this is a new path.
+    let (dir, db, app) = setup_with_db().await;
+    let (_topic, _opening, reply) = conversation(&db).await;
+
+    let cookie = signed_in(&db, dir.path(), "bob", &["Household"]).await;
+    let response = app
+        .oneshot(get(
+            "blog.example.org",
+            &format!("/p/{reply}/delete"),
+            &cookie,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

@@ -401,19 +401,40 @@ pub async fn load_topic(
         .fetch_all(db.pool())
         .await?
         .iter()
-        .map(|r| Post {
-            id: r.get("id"),
-            topic_id: r.get("topic_id"),
-            body_markdown: r.get("body_markdown"),
-            author_subject: r.get("author_subject"),
-            author_name: r.get("author_name"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-            edited: r.get::<i64, _>("edited") != 0,
-        })
+        .map(post_from)
         .collect();
 
     Ok(Some((topic, posts)))
+}
+
+/// One post, if it is in this space — for the page that asks before deleting.
+///
+/// The space is part of the condition here for the same reason it is part of
+/// it in [`load_topic`]: a number in an address must not reach across two
+/// audiences.
+pub async fn load_post(db: &Db, space: &str, id: i64) -> anyhow::Result<Option<Post>> {
+    let row = sqlx::query(
+        "SELECT p.* FROM posts p JOIN topics t ON t.id = p.topic_id
+          WHERE p.id = ? AND t.space = ? AND t.hidden = 0",
+    )
+    .bind(id)
+    .bind(space)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row.as_ref().map(post_from))
+}
+
+fn post_from(r: &sqlx::sqlite::SqliteRow) -> Post {
+    Post {
+        id: r.get("id"),
+        topic_id: r.get("topic_id"),
+        body_markdown: r.get("body_markdown"),
+        author_subject: r.get("author_subject"),
+        author_name: r.get("author_name"),
+        created_at: r.get("created_at"),
+        updated_at: r.get("updated_at"),
+        edited: r.get::<i64, _>("edited") != 0,
+    }
 }
 
 #[cfg(test)]

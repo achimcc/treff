@@ -138,6 +138,12 @@ async fn render_the_pages_for_a_look() {
         ("blog", "blog.example.org", "/"),
         ("thema", "forum.example.org", "/t/1"),
         ("kategorie", "forum.example.org", "/c/general"),
+        // The two pages the topic list shares its markup with, so that a
+        // change to one is seen on all three: the question before deleting
+        // (post 1 belongs to the reader signed in here), and a search hit,
+        // which is a list row with a third line under it.
+        ("loeschen", "forum.example.org", "/p/1/delete"),
+        ("suche", "forum.example.org", "/search?q=projector"),
     ] {
         let html = body_of(
             app.clone()
