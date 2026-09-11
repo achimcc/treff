@@ -343,6 +343,12 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 
 .write > summary {
     display: inline-block;
+    /* `justify-self`, because the open box is a grid: without it the button
+       stretches across the whole column and reads as the heading of the box
+       instead of the control that closes it again. That is what it looked
+       like on 2026-09-11, and the first person to open it found no way back
+       out short of submitting. */
+    justify-self: start;
     font: 600 13px/1 var(--mono);
     letter-spacing: .08em;
     text-transform: uppercase;
@@ -361,6 +367,13 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 .write > summary::before { content: "$ "; opacity: .6; }
 .write > summary:hover { background: var(--on); color: var(--ground); }
 .write > summary:hover::before { opacity: .45; }
+
+/* Open, the same button says what a second click will do. The prompt gives
+   way to a cross, and the colour steps back: a control that opened something
+   and then looks exactly as it did is one nobody presses twice. */
+.write[open] > summary { color: var(--murmur); border-color: var(--edge); }
+.write[open] > summary::before { content: "× "; opacity: .8; }
+.write[open] > summary:hover { background: none; color: var(--text); border-color: var(--quiet); }
 
 .write > form { display: grid; gap: .8rem; }
 

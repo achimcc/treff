@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.4 — 2026-09-11
+
+- **The button that opens a form says how to close it again.** Open, it
+  stretched across the whole box and read as the box's heading rather than as
+  a control: the first person to open the reply box found no way back out
+  short of submitting. It keeps its button width now, and open it shows a
+  cross instead of the prompt and steps back in colour, while the button that
+  actually posts keeps the accent.
+
 ## 0.3.3 — 2026-09-11
 
 - **Forms wait to be asked for.** Opening a topic, replying, and editing your
