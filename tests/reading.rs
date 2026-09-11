@@ -295,3 +295,87 @@ async fn a_search_finds_only_what_this_address_holds() {
         "a search must not reach across addresses: {across}"
     );
 }
+
+#[tokio::test]
+async fn a_topic_list_names_whoever_wrote_last() {
+    // Until this test the list showed the name of whoever OPENED the topic
+    // next to the date of its last activity: two halves of two different
+    // events. Whoever reads a list wants to know where something is going on,
+    // and that is the latest post.
+    let (dir, db, app) = setup_with_db().await;
+    let opener = treff::authz::Identity {
+        subject: "s1".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let answerer = treff::authz::Identity {
+        subject: "s2".into(),
+        name: "Bob".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    let topic = treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A question",
+        "the opening post",
+        &opener,
+    )
+    .await
+    .expect("topic");
+    treff::db::topics::add_reply(&db, topic, "an answer", &answerer)
+        .await
+        .expect("reply");
+
+    let cookie = signed_in(&db, dir.path(), "reader", &["Friends"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", "/c/general", &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        html.contains("Bob"),
+        "the list does not say who answered last: {html}"
+    );
+    assert!(
+        !html.contains("Ada"),
+        "the list still names the opener next to a foreign date: {html}"
+    );
+}
+
+#[tokio::test]
+async fn a_topic_nobody_answered_names_its_author() {
+    // The opening post IS the latest post then, so the line reads the way it
+    // always did — no special case in the view.
+    let (dir, db, app) = setup_with_db().await;
+    let opener = treff::authz::Identity {
+        subject: "s1".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+    };
+    treff::db::topics::create_topic(
+        &db,
+        "forum.example.org",
+        "general",
+        "A question",
+        "the opening post",
+        &opener,
+    )
+    .await
+    .expect("topic");
+
+    let cookie = signed_in(&db, dir.path(), "reader", &["Friends"]).await;
+    let html = body_of(
+        app.oneshot(get("forum.example.org", "/c/general", &cookie))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(html.contains("Ada"), "{html}");
+}

@@ -290,7 +290,7 @@ mod tests {
             .await
             .expect("list")
             .into_iter()
-            .map(|t| t.title)
+            .map(|(t, _)| t.title)
             .collect()
     }
 
@@ -327,6 +327,7 @@ mod tests {
             .await
             .expect("list")
             .into_iter()
+            .map(|(t, _)| t)
             .find(|t| t.title == "The older one")
             .expect("the older article");
         let (_, posts) = crate::db::topics::load_topic(&db, "blog.example.org", older.id)
@@ -378,6 +379,7 @@ mod tests {
         let id = crate::db::topics::list_topics(&db, "blog.example.org", "notes", 1, 0)
             .await
             .expect("list")[0]
+            .0
             .id;
         let reader = crate::authz::Identity {
             subject: "s2".into(),
@@ -420,6 +422,7 @@ mod tests {
         let id = crate::db::topics::list_topics(&db, "blog.example.org", "notes", 1, 0)
             .await
             .expect("list")[0]
+            .0
             .id;
         let reader = crate::authz::Identity {
             subject: "s2".into(),

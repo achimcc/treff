@@ -631,7 +631,7 @@ async fn render_space(
     // A timeline shows the bodies, so it needs the opening post of each topic.
     // A topic list does not, and does not ask for them.
     let mut rows = Vec::with_capacity(topics.len());
-    for topic in topics {
+    for (topic, last) in topics {
         let first = if space.view == crate::config::View::Timeline {
             match crate::db::topics::load_topic(&app.db, &space.host, topic.id).await {
                 Ok(Some((_, posts))) => posts.into_iter().next(),
@@ -641,7 +641,7 @@ async fn render_space(
         } else {
             None
         };
-        rows.push((topic, first));
+        rows.push(crate::web::views::TopicRow { topic, last, first });
     }
 
     crate::web::views::space_page(space, who, lang, space.category(slug), &rows).into_response()

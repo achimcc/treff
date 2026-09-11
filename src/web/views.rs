@@ -6,7 +6,7 @@
 
 use crate::authz::Identity;
 use crate::config::{Category, Space, View};
-use crate::db::topics::{CategoryCount, Post, Topic};
+use crate::db::topics::{CategoryCount, LastPost, Post, Topic};
 use crate::i18n::Lang;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
@@ -230,6 +230,14 @@ pub fn day(unix_seconds: i64) -> String {
         .unwrap_or_else(|_| String::from("unknown"))
 }
 
+/// One line of a space: the topic, whoever wrote in it last, and — in a
+/// timeline only — the opening post whose body is shown underneath.
+pub struct TopicRow {
+    pub topic: Topic,
+    pub last: Option<LastPost>,
+    pub first: Option<Post>,
+}
+
 /// A space, rendered the way it is configured: a timeline shows the posts
 /// themselves, a topic list shows titles. Same data, one line of configuration
 /// apart.
@@ -238,7 +246,7 @@ pub fn space_page(
     who: &Identity,
     lang: Lang,
     category: Option<&Category>,
-    topics: &[(Topic, Option<Post>)],
+    topics: &[TopicRow],
 ) -> Markup {
     // Display follows the right: someone who may not open a topic is not shown
     // a button that leads to a refusal.
@@ -249,7 +257,7 @@ pub fn space_page(
         }
         @match space.view {
             View::Timeline => {
-                @for (topic, first) in topics {
+                @for TopicRow { topic, first, .. } in topics {
                     article class="entry" {
                         h2 { a href={ "/t/" (topic.id) } { (topic.title) } }
                         // Das Datum steht hier, weil es die ORDNUNG dieser
@@ -271,13 +279,31 @@ pub fn space_page(
             }
             View::Topics => {
                 ul class="topics" {
-                    @for (topic, _) in topics {
+                    @for TopicRow { topic, last, .. } in topics {
                         li {
                             a href={ "/t/" (topic.id) } { (topic.title) }
+                            // WHO WROTE LAST, AND WHEN — not the opener next
+                            // to the date of somebody else's reply. Those are
+                            // two halves of two different events, and the line
+                            // said them as one until 2026-09-11.
                             span class="byline" {
-                                span class="name" { (topic.author_name) }
-                                span class="sep" { " · " }
-                                (day(topic.updated_at))
+                                @match last {
+                                    Some(last) => {
+                                        span class="name" { (last.author_name) }
+                                        span class="sep" { " · " }
+                                        (day(last.created_at))
+                                    },
+                                    // Constructively unreachable — a topic
+                                    // always has its opening post. A byline
+                                    // that falls back to the topic's own
+                                    // beginning is still true; an empty one
+                                    // would look like a bug.
+                                    None => {
+                                        span class="name" { (topic.author_name) }
+                                        span class="sep" { " · " }
+                                        (day(topic.created_at))
+                                    },
+                                }
                             }
                         }
                     }

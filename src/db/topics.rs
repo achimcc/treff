@@ -38,6 +38,15 @@ pub struct Topic {
     pub updated_at: i64,
 }
 
+/// Who wrote in a topic last, and when — the two things a list shows under a
+/// title. Not a whole [`Post`]: reading every body to print two words would be
+/// a page of work for a byline.
+#[derive(Debug, Clone)]
+pub struct LastPost {
+    pub author_name: String,
+    pub created_at: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Post {
     pub id: i64,
@@ -328,13 +337,23 @@ pub async fn list_topics(
     category: &str,
     limit: i64,
     offset: i64,
-) -> anyhow::Result<Vec<Topic>> {
+) -> anyhow::Result<Vec<(Topic, Option<LastPost>)>> {
     let (limit, offset) = clamp_page(limit, offset);
     let rows = sqlx::query(
         // `hidden = 0` keeps withdrawn articles out of the list without
         // deleting them — the comments underneath are not ours to remove.
-        "SELECT * FROM topics WHERE space = ? AND category = ? AND hidden = 0
-         ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?",
+        //
+        // The join answers the question a list is really asked: where is
+        // something going on? The highest `id` and not the latest
+        // `created_at`, because the order posts were written in is the order
+        // they are read in; a backdated article must not jump the queue.
+        "SELECT t.*,
+                p.author_name AS last_author_name,
+                p.created_at  AS last_created_at
+           FROM topics t
+           LEFT JOIN posts p ON p.id = (SELECT max(id) FROM posts WHERE topic_id = t.id)
+          WHERE t.space = ? AND t.category = ? AND t.hidden = 0
+          ORDER BY t.updated_at DESC, t.id DESC LIMIT ? OFFSET ?",
     )
     .bind(space)
     .bind(category)
@@ -342,7 +361,21 @@ pub async fn list_topics(
     .bind(offset)
     .fetch_all(db.pool())
     .await?;
-    Ok(rows.iter().map(topic_from).collect())
+    Ok(rows
+        .iter()
+        .map(|row| {
+            // `LEFT JOIN` and not `JOIN`: a topic whose posts are all gone
+            // would otherwise fall out of the list entirely, and a list that
+            // silently drops a row is worse than one with a missing byline.
+            let last = row
+                .get::<Option<String>, _>("last_author_name")
+                .map(|author_name| LastPost {
+                    author_name,
+                    created_at: row.get("last_created_at"),
+                });
+            (topic_from(row), last)
+        })
+        .collect())
 }
 
 /// `space` is part of the condition, not just of the display: without it every
@@ -389,9 +422,14 @@ mod tests {
     use crate::authz::Identity;
 
     fn who(sub: &str) -> Identity {
+        named(sub, "N")
+    }
+
+    /// The same, where the test is about the name that ends up on a page.
+    fn named(sub: &str, name: &str) -> Identity {
         Identity {
             subject: sub.into(),
-            name: "N".into(),
+            name: name.into(),
             groups: vec![],
             email: None,
         }
@@ -461,7 +499,9 @@ mod tests {
 
         let list = list_topics(&db, "a", "k", 10, 0).await.expect("list");
         assert_eq!(
-            list.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(),
+            list.iter()
+                .map(|(t, _)| t.title.as_str())
+                .collect::<Vec<_>>(),
             vec!["here"]
         );
     }
@@ -525,14 +565,14 @@ mod tests {
             .expect("age it");
 
         let before = list_topics(&db, "s", "k", 10, 0).await.expect("list");
-        assert_eq!(before[0].title, "new");
+        assert_eq!(before[0].0.title, "new");
 
         add_reply(&db, old, "up you go", &who("s2"))
             .await
             .expect("reply");
 
         let after = list_topics(&db, "s", "k", 10, 0).await.expect("list");
-        assert_eq!(after[0].title, "old", "the reply did not lift its topic");
+        assert_eq!(after[0].0.title, "old", "the reply did not lift its topic");
     }
 
     #[tokio::test]
@@ -567,10 +607,10 @@ mod tests {
         }
         let page = list_topics(&db, "s", "k", 2, 0).await.expect("list");
         assert_eq!(page.len(), 2);
-        assert_eq!(page[0].title, "c");
+        assert_eq!(page[0].0.title, "c");
         let second = list_topics(&db, "s", "k", 2, 2).await.expect("list");
         assert_eq!(second.len(), 1);
-        assert_eq!(second[0].title, "a");
+        assert_eq!(second[0].0.title, "a");
     }
 
     #[tokio::test]
@@ -594,5 +634,45 @@ mod tests {
                 .len(),
             3
         );
+    }
+
+    #[tokio::test]
+    async fn the_list_reports_the_latest_post_of_each_topic() {
+        // What a list wants to show is where something is going on: who wrote
+        // last, and when. The topic row cannot answer that — its author is
+        // whoever opened it, and `updated_at` belongs to no name at all.
+        let (_d, db) = db().await;
+        let id = create_topic(&db, "a", "k", "here", "x", &named("s1", "Ada"))
+            .await
+            .expect("create");
+        let reply = add_reply(&db, id, "and then", &named("s2", "Bob"))
+            .await
+            .expect("reply");
+        // A date of its own, so that `updated_at` — which is `now()` — cannot
+        // pass for the answer by accident.
+        sqlx::query("UPDATE posts SET created_at = ? WHERE id = ?")
+            .bind(1_700_000_000i64)
+            .bind(reply)
+            .execute(db.pool())
+            .await
+            .expect("backdate");
+
+        let list = list_topics(&db, "a", "k", 10, 0).await.expect("list");
+        let (_, last) = &list[0];
+        let last = last.as_ref().expect("a topic always has a post");
+        assert_eq!(last.author_name, "Bob");
+        assert_eq!(last.created_at, 1_700_000_000);
+    }
+
+    #[tokio::test]
+    async fn a_topic_without_replies_reports_its_opening_post() {
+        let (_d, db) = db().await;
+        create_topic(&db, "a", "k", "here", "x", &named("s1", "Ada"))
+            .await
+            .expect("create");
+
+        let list = list_topics(&db, "a", "k", 10, 0).await.expect("list");
+        let (_, last) = &list[0];
+        assert_eq!(last.as_ref().expect("a post").author_name, "Ada");
     }
 }
