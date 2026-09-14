@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.7 — 2026-09-14
+
+- **A link leads where it points — after the sign-in, too.** Someone who
+  opened a link to a topic without a session was sent to sign in and then
+  landed on the front page, and had to find the topic by hand. The page now
+  travels along: into the login redirect, from there into the short-lived
+  sign-in cookie, and the callback returns to it. Only a page on this site is
+  followed; anything else — another site, the sign-in itself, a form that was
+  posted — ends on the front page as before.
+
 ## 0.3.6 — 2026-09-11
 
 - **A topic list says who opened a thread AND who answered last.** It carried

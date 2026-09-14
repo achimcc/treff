@@ -185,7 +185,7 @@ where
         let app = AppState::from_ref(state);
         match identity_from_cookies(&app, parts).await {
             Some(id) => Ok(CurrentUser(id)),
-            None => Err(Redirect::to("/auth/login").into_response()),
+            None => Err(login_redirect(parts)),
         }
     }
 }
@@ -213,13 +213,64 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
     let open =
         path.starts_with("/auth/") || path.starts_with("/assets/") || path.starts_with("/u/");
     if !open && identity_from_cookies(&app, &parts).await.is_none() {
-        return Redirect::to("/auth/login").into_response();
+        return login_redirect(&parts);
     }
 
     next.run(Request::from_parts(parts, body)).await
 }
 
-async fn login(State(app): State<AppState>, CurrentSpace(space): CurrentSpace) -> Response {
+/// The redirect to the sign-in, carrying the page that asked for it.
+///
+/// A link to a topic must lead THERE after the sign-in, not to the front
+/// page; until 0.3.7 it did the latter, and a link sent to someone without a
+/// session was a link to the front page with an extra step. Only a GET is
+/// remembered: a form posted after the session ran out cannot be replayed by
+/// the GET that follows the callback.
+fn login_redirect(parts: &Parts) -> Response {
+    let page = (parts.method == axum::http::Method::GET)
+        .then(|| parts.uri.path_and_query().map(|pq| pq.as_str()))
+        .flatten();
+    match page {
+        Some(p) if safe_return_path(Some(p)) != "/" => {
+            let encoded =
+                percent_encoding::utf8_percent_encode(p, percent_encoding::NON_ALPHANUMERIC);
+            Redirect::to(&format!("/auth/login?next={encoded}")).into_response()
+        }
+        _ => Redirect::to("/auth/login").into_response(),
+    }
+}
+
+/// Where a sign-in returns to. `next` comes from a URL, so anyone can write
+/// it: only a path on this site is followed. Anything that would leave the
+/// site (a scheme, a protocol-relative `//host`, a backslash a browser reads
+/// as one), land on the sign-in again (a loop), or break the cookie it is
+/// stored in (a line break) falls back to the front page.
+fn safe_return_path(raw: Option<&str>) -> String {
+    match raw {
+        Some(p)
+            if p.starts_with('/')
+                && !p.starts_with("//")
+                && !p.starts_with("/\\")
+                && !p.starts_with("/auth/")
+                && !p.chars().any(char::is_control) =>
+        {
+            p.to_string()
+        }
+        _ => "/".to_string(),
+    }
+}
+
+/// What the login accepts from its own redirect.
+#[derive(serde::Deserialize)]
+struct LoginQuery {
+    next: Option<String>,
+}
+
+async fn login(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    axum::extract::Query(query): axum::extract::Query<LoginQuery>,
+) -> Response {
     let provider = match app.provider().await {
         Ok(p) => p,
         Err(e) => {
@@ -236,7 +287,9 @@ async fn login(State(app): State<AppState>, CurrentSpace(space): CurrentSpace) -
 
     match provider.begin_login(&redirect_uri_for(&space.host)) {
         Ok(start) => {
-            let jar = PrivateCookieJar::new(app.cookie_key.clone()).add(pending_cookie(&start));
+            let return_to = safe_return_path(query.next.as_deref());
+            let jar = PrivateCookieJar::new(app.cookie_key.clone())
+                .add(pending_cookie(&start, &return_to));
             (jar, Redirect::to(&start.url)).into_response()
         }
         Err(e) => {
@@ -250,12 +303,14 @@ async fn login(State(app): State<AppState>, CurrentSpace(space): CurrentSpace) -
     }
 }
 
-fn pending_cookie(start: &crate::auth::oidc::LoginStart) -> Cookie<'static> {
-    // state, nonce and the PKCE verifier travel in one short-lived private
-    // cookie. They never appear in a URL.
+fn pending_cookie(start: &crate::auth::oidc::LoginStart, return_to: &str) -> Cookie<'static> {
+    // state, nonce, the PKCE verifier and the page to return to travel in one
+    // short-lived private cookie. They never appear in a URL — the page is
+    // checked by `safe_return_path` BEFORE it goes in, so the callback can
+    // follow it without looking twice.
     let value = format!(
-        "{}\n{}\n{}",
-        start.pending.state, start.pending.nonce, start.pending.pkce_verifier
+        "{}\n{}\n{}\n{}",
+        start.pending.state, start.pending.nonce, start.pending.pkce_verifier, return_to
     );
     let mut c = Cookie::new("treff_pending", value);
     c.set_http_only(true);
@@ -299,7 +354,7 @@ async fn callback(
     // No cookie, nothing to compare `state` against. That is a refusal and not
     // a new sign-in: silently starting one here would make an unsolicited
     // callback indistinguishable from a real one.
-    let Some(pending) = jar
+    let Some((pending, return_to)) = jar
         .get("treff_pending")
         .and_then(|c| parse_pending(c.value()))
     else {
@@ -348,22 +403,29 @@ async fn callback(
     let mut spent = Cookie::new("treff_pending", "");
     spent.set_path("/auth");
     let jar = jar.remove(spent).add(session_cookie(session));
-    (jar, Redirect::to("/")).into_response()
+    (jar, Redirect::to(&return_to)).into_response()
 }
 
-fn parse_pending(value: &str) -> Option<crate::auth::oidc::PendingLogin> {
+/// The cookie's three secrets and the page to return to. A cookie from
+/// before 0.3.7 has three lines and no page; a sign-in that was in flight
+/// during the upgrade still completes, on the front page.
+fn parse_pending(value: &str) -> Option<(crate::auth::oidc::PendingLogin, String)> {
     let mut parts = value.split('\n');
     let state = parts.next()?.to_string();
     let nonce = parts.next()?.to_string();
     let pkce_verifier = parts.next()?.to_string();
+    let return_to = safe_return_path(parts.next());
     if parts.next().is_some() || state.is_empty() || nonce.is_empty() || pkce_verifier.is_empty() {
         return None;
     }
-    Some(crate::auth::oidc::PendingLogin {
-        state,
-        nonce,
-        pkce_verifier,
-    })
+    Some((
+        crate::auth::oidc::PendingLogin {
+            state,
+            nonce,
+            pkce_verifier,
+        },
+        return_to,
+    ))
 }
 
 /// Signing out ends the session IN THE DATABASE, not only in the browser.
@@ -1114,6 +1176,39 @@ pub fn router(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_path_on_this_site_is_a_place_to_return_to() {
+        assert_eq!(safe_return_path(Some("/t/128")), "/t/128");
+        assert_eq!(
+            safe_return_path(Some("/c/general?page=2")),
+            "/c/general?page=2"
+        );
+        for wrong in [
+            "https://evil.example.org/",
+            "//evil.example.org/",
+            "/\\evil.example.org/",
+            "/auth/login",
+            "/auth/callback?code=x",
+            "t/128",
+            "/t/1\n/x",
+            "",
+        ] {
+            assert_eq!(safe_return_path(Some(wrong)), "/", "{wrong:?} was followed");
+        }
+        assert_eq!(safe_return_path(None), "/");
+    }
+
+    #[test]
+    fn a_pending_cookie_from_before_the_page_was_remembered_still_parses() {
+        // Three lines, no page: a sign-in begun before the upgrade completes
+        // on the front page rather than being refused.
+        let (pending, return_to) = parse_pending("s\nn\nv").expect("three lines");
+        assert_eq!((pending.state.as_str(), return_to.as_str()), ("s", "/"));
+        let (_, return_to) = parse_pending("s\nn\nv\n/t/7").expect("four lines");
+        assert_eq!(return_to, "/t/7");
+        assert!(parse_pending("s\nn\nv\n/t/7\nextra").is_none());
+    }
 
     #[test]
     fn a_title_of_whitespace_is_no_title() {

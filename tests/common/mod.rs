@@ -55,6 +55,13 @@ pub async fn setup() -> (tempfile::TempDir, axum::Router) {
 }
 
 pub async fn setup_with_db() -> (tempfile::TempDir, treff::db::Db, axum::Router) {
+    setup_with_issuer("http://127.0.0.1:1/").await
+}
+
+/// The same router, told where its identity provider lives. With
+/// `mock_provider` that makes the first half of a sign-in — the redirect to
+/// the provider, and the cookie it leaves behind — testable at the route.
+pub async fn setup_with_issuer(issuer: &str) -> (tempfile::TempDir, treff::db::Db, axum::Router) {
     let dir = tempfile::tempdir().expect("tempdir");
     let db = treff::db::Db::open(&dir.path().join("t.db"))
         .await
@@ -70,7 +77,7 @@ pub async fn setup_with_db() -> (tempfile::TempDir, treff::db::Db, axum::Router)
         Config::parse(CONFIGURATION).expect("configuration"),
         db.clone(),
         treff::auth::OidcSettings {
-            issuer: "http://127.0.0.1:1/".into(),
+            issuer: issuer.into(),
             client_id: "treff-test".into(),
             client_secret: "test".into(),
             group_claim: "groups".into(),
@@ -80,6 +87,65 @@ pub async fn setup_with_db() -> (tempfile::TempDir, treff::db::Db, axum::Router)
     .expect("state");
     let app = treff::web::router(state);
     (dir, db, app)
+}
+
+/// An identity provider that answers discovery and hands out no keys — enough
+/// for a sign-in to BEGIN. The same stub the unit tests in `auth::oidc` use;
+/// it lives here a second time because Cargo does not share test modules
+/// between a crate and its integration tests.
+pub async fn mock_provider() -> wiremock::MockServer {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::start().await;
+    let issuer = server.uri();
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "issuer": issuer,
+            "authorization_endpoint": format!("{issuer}/authorize"),
+            "token_endpoint": format!("{issuer}/token"),
+            "jwks_uri": format!("{issuer}/jwks"),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/jwks"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "keys": []
+        })))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// The decrypted value of the private cookie `name` that `response` sets —
+/// read with the key from the same directory, the way the application would
+/// read it on the next request. `None` if the response sets no such cookie.
+pub fn decrypted_cookie(
+    dir: &std::path::Path,
+    response: &axum::response::Response,
+    name: &str,
+) -> Option<String> {
+    let sent = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter_map(|v| v.split(';').next())
+        .find(|nv| nv.starts_with(&format!("{name}=")))?;
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::COOKIE,
+        axum::http::HeaderValue::from_str(sent).expect("ascii"),
+    );
+    let key = treff::web::load_or_create_cookie_key(dir).expect("key");
+    let jar = axum_extra::extract::cookie::PrivateCookieJar::from_headers(&headers, key);
+    jar.get(name).map(|c| c.value().to_string())
 }
 
 /// Creates a session for someone in `groups` and returns the `Cookie:` header

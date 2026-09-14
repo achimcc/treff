@@ -1,6 +1,6 @@
 [package]
 name = "treff"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "A small forum for closed groups, authenticated by your own OIDC provider"
@@ -21,6 +21,7 @@ jiff = "0.2.35"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "tokio1-rustls", "rustls-native-certs", "pool", "ring"] }
 maud = { version = "0.27.0", features = ["axum"] }
 openidconnect = "4.0.1"
+percent-encoding = "2.3.2"
 rand = "0.10.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

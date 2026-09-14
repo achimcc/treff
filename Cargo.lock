@@ -3772,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "treff"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -3785,6 +3785,7 @@ dependencies = [
  "lettre",
  "maud",
  "openidconnect",
+ "percent-encoding",
  "rand 0.10.2",
  "serde",
  "serde_json",

@@ -111,3 +111,122 @@ async fn signing_out_destroys_the_session() {
         "the session is gone, so the request is sent to sign in again"
     );
 }
+
+fn location(response: &axum::response::Response) -> &str {
+    response
+        .headers()
+        .get("location")
+        .and_then(|l| l.to_str().ok())
+        .unwrap_or_default()
+}
+
+fn post(host: &str, path: &str) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("Host", host)
+        .body(Body::empty())
+        .expect("request")
+}
+
+/// A LINK TO A TOPIC MUST LEAD THERE — after the sign-in, not instead of it.
+///
+/// Until 0.3.7 the sign-in ended on the front page no matter which page had
+/// asked for it. A link sent to someone without a session was therefore a
+/// link to the front page with an extra step, and the person had to find the
+/// topic by hand. The page travels along: first in the login redirect, then in
+/// the short-lived cookie, and the callback returns to it.
+#[tokio::test]
+async fn the_page_asked_for_travels_with_the_login_redirect() {
+    let (_dir, app) = common::setup().await;
+
+    let response = app
+        .oneshot(get("forum.example.org", "/t/128", None))
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(location(&response), "/auth/login?next=%2Ft%2F128");
+}
+
+/// The login stores the page next to `state`, nonce and the PKCE verifier —
+/// in the cookie, so the callback can find it without trusting the URL.
+#[tokio::test]
+async fn the_login_remembers_the_page_in_its_cookie() {
+    let server = common::mock_provider().await;
+    let (dir, _db, app) = common::setup_with_issuer(&server.uri()).await;
+
+    let response = app
+        .oneshot(get(
+            "forum.example.org",
+            "/auth/login?next=%2Ft%2F128",
+            None,
+        ))
+        .await
+        .expect("response");
+
+    assert_eq!(
+        response.status(),
+        StatusCode::SEE_OTHER,
+        "the login did not reach its provider"
+    );
+    let pending = common::decrypted_cookie(dir.path(), &response, "treff_pending")
+        .expect("the login sets its cookie");
+    assert_eq!(
+        pending.lines().last(),
+        Some("/t/128"),
+        "the cookie does not carry the page: {pending:?}"
+    );
+}
+
+/// `next` comes from the URL, so anyone can write it. Only a path on this
+/// site is followed; anything that would leave the site — or land on the
+/// login again, which is a loop — falls back to the front page.
+#[tokio::test]
+async fn a_page_outside_the_site_is_not_remembered() {
+    let server = common::mock_provider().await;
+    let (dir, _db, app) = common::setup_with_issuer(&server.uri()).await;
+
+    for next in [
+        "https%3A%2F%2Fevil.example.org%2F",
+        "%2F%2Fevil.example.org%2F",
+        "%2F%5Cevil.example.org%2F",
+        "%2Fauth%2Flogin",
+        "t%2F128",
+        "%2Ft%2F1%0A%2Fauth%2Fcallback",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(get(
+                "forum.example.org",
+                &format!("/auth/login?next={next}"),
+                None,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER, "next={next}");
+        let pending = common::decrypted_cookie(dir.path(), &response, "treff_pending")
+            .expect("the login sets its cookie");
+        assert_eq!(
+            pending.lines().last(),
+            Some("/"),
+            "next={next} was remembered: {pending:?}"
+        );
+    }
+}
+
+/// A form posted after the session ran out cannot be replayed by a GET after
+/// the sign-in — the address would answer 405. So nothing is remembered, and
+/// the sign-in ends where it always did.
+#[tokio::test]
+async fn a_post_without_a_session_is_not_remembered_as_a_page() {
+    let (_dir, app) = common::setup().await;
+
+    let response = app
+        .oneshot(post("forum.example.org", "/t/5/reply"))
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(location(&response), "/auth/login");
+}
