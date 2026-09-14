@@ -43,19 +43,27 @@ struct Article {
 
 /// `YYYY-MM-DD-<name>.md` → the date part, as a string, and only if it is a
 /// date that exists. `2026-13-45` looks like one and is not.
-fn date_of(name: &str) -> Option<(String, i64)> {
+///
+/// The day begins at midnight WHERE THE FORUM STANDS. Until 0.3.8 it was
+/// midnight UTC, and shown in the forum's own zone every article read `02:00`
+/// in summer and `01:00` in winter — an hour nobody chose, on a file that
+/// never had one.
+fn date_of(name: &str, zone: &jiff::tz::TimeZone) -> Option<(String, i64)> {
     let stem = name.strip_suffix(".md")?;
     let (date, rest) = stem.split_at_checked(10)?;
     if !rest.starts_with('-') {
         return None;
     }
-    let parsed = time::Date::parse(
-        date,
-        &time::macros::format_description!("[year]-[month]-[day]"),
-    )
-    .ok()?;
-    let midnight = parsed.midnight().assume_utc().unix_timestamp();
+    let midnight = day_start(date, zone)?;
     Some((date.to_string(), midnight))
+}
+
+/// Midnight of `day` (`YYYY-MM-DD`) in `zone`, or nothing for a day that does
+/// not exist.
+fn day_start(day: &str, zone: &jiff::tz::TimeZone) -> Option<i64> {
+    let date: jiff::civil::Date = day.parse().ok()?;
+    let zoned = date.to_zoned(zone.clone()).ok()?;
+    Some(zoned.timestamp().as_second())
 }
 
 /// Front matter between two `---` lines, then the prose. Only the title is
@@ -84,8 +92,13 @@ fn split_front_matter(text: &str, title_key: &str) -> Option<(String, String)> {
     Some((title, body))
 }
 
-fn read_article(path: &Path, name: &str, title_key: &str) -> Option<Article> {
-    let (_, published_at) = date_of(name)?;
+fn read_article(
+    path: &Path,
+    name: &str,
+    title_key: &str,
+    zone: &jiff::tz::TimeZone,
+) -> Option<Article> {
+    let (_, published_at) = date_of(name, zone)?;
     let text = std::fs::read_to_string(path).ok()?;
     let (title, body) = split_front_matter(&text, title_key)?;
     Some(Article {
@@ -113,6 +126,12 @@ pub async fn mirror(
     let entries = std::fs::read_dir(dir)
         .map_err(|e| anyhow::anyhow!("cannot read the article directory {dir:?}: {e}"))?;
 
+    let zone = crate::clock::zone();
+    // A `today` that is not a day is an error in the caller, and a draft
+    // rule that cannot tell today from tomorrow must not publish anything.
+    let today =
+        day_start(today, zone).ok_or_else(|| anyhow::anyhow!("today is not a date: {today:?}"))?;
+
     let mut report = Mirrored::default();
     let mut present = Vec::new();
 
@@ -122,7 +141,7 @@ pub async fn mirror(
         if !name.ends_with(".md") {
             continue;
         }
-        let Some(article) = read_article(&entry.path(), &name, title_key) else {
+        let Some(article) = read_article(&entry.path(), &name, title_key, zone) else {
             eprintln!(
                 "treff: skipping {name}: no date in the name, or no `{title_key}` \
                  in the front matter"
@@ -130,7 +149,7 @@ pub async fn mirror(
             report.skipped += 1;
             continue;
         };
-        if article.published_at > day_start(today) {
+        if article.published_at > today {
             // Dated in the future: a draft. It is not stored at all, so it
             // cannot be reached by guessing an id either.
             continue;
@@ -143,15 +162,6 @@ pub async fn mirror(
 
     report.hidden = hide_missing(db, space, &present).await?;
     Ok(report)
-}
-
-fn day_start(day: &str) -> i64 {
-    time::Date::parse(
-        day,
-        &time::macros::format_description!("[year]-[month]-[day]"),
-    )
-    .map(|d| d.midnight().assume_utc().unix_timestamp())
-    .unwrap_or(i64::MAX)
 }
 
 async fn upsert(db: &Db, space: &str, category: &str, article: &Article) -> anyhow::Result<()> {
@@ -268,6 +278,19 @@ async fn hide_missing(db: &Db, space: &str, present: &[String]) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The day in a file name is a day WHERE THE FORUM STANDS, not a day in
+    /// UTC. Midnight UTC shown in Berlin is `02:00` in summer and `01:00` in
+    /// winter — every article carried one of the two until 0.3.8.
+    #[test]
+    fn the_day_in_the_name_begins_at_midnight_in_the_forums_zone() {
+        let berlin = jiff::tz::TimeZone::get("Europe/Berlin").expect("zone");
+        let (day, at) = date_of("2026-07-15-summer.md", &berlin).expect("dated");
+        assert_eq!(day, "2026-07-15");
+        assert_eq!(crate::clock::stamp(at, &berlin), "2026-07-15 00:00");
+        let (_, winter) = date_of("2026-01-15-winter.md", &berlin).expect("dated");
+        assert_eq!(crate::clock::stamp(winter, &berlin), "2026-01-15 00:00");
+    }
 
     async fn db() -> (tempfile::TempDir, crate::db::Db) {
         let dir = tempfile::tempdir().expect("tempdir");

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.8 — 2026-09-14
+
+- **An article is dated by its day, and shows no hour.** The file name of a
+  mirrored article carries a date and nothing else; that became midnight UTC,
+  and shown in the forum's own zone every article read `02:00` in summer and
+  `01:00` in winter — an hour nobody chose. The day now begins at midnight
+  where the forum stands, and the timeline, the topic list and the head of the
+  article's page print the day alone. The comments under an article were
+  written at a moment and keep their hour.
+
 ## 0.3.7 — 2026-09-14
 
 - **A link leads where it points — after the sign-in, too.** Someone who

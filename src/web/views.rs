@@ -233,6 +233,17 @@ pub fn moment(unix_seconds: i64) -> String {
     crate::clock::stamp(unix_seconds, crate::clock::zone())
 }
 
+/// The day alone, for a topic dated by its day (`Topic::dated_by_day`). An
+/// article from a file has no hour; printing midnight for it read as `02:00`
+/// on every article until 0.3.8, and an hour nobody chose is worse than none.
+pub fn opened(topic: &Topic) -> String {
+    if topic.dated_by_day {
+        crate::clock::day(topic.created_at, crate::clock::zone())
+    } else {
+        moment(topic.created_at)
+    }
+}
+
 /// One line of a space: the topic, whoever wrote in it last, and — in a
 /// timeline only — the opening post whose body is shown underneath.
 pub struct TopicRow {
@@ -330,7 +341,7 @@ pub fn space_page(
                         p class="byline" {
                             span class="name" { (topic.author_name) }
                             span class="sep" { " · " }
-                            (moment(topic.created_at))
+                            (opened(topic))
                         }
                         @if let Some(post) = first {
                             div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
@@ -374,7 +385,7 @@ pub fn space_page(
                                     p class="byline" {
                                         span class="name" { (topic.author_name) }
                                         span class="sep" { " · " }
-                                        (moment(topic.created_at))
+                                        (opened(topic))
                                     }
                                 }
                                 // The heading is repeated on the cell because
@@ -463,12 +474,16 @@ pub fn topic_page(
                 span class="note" { (lang.t("following_note")) }
             }
         }
-        @for post in posts {
+        @for (i, post) in posts.iter().enumerate() {
             article class="post" {
                 p class="byline" {
                     span class="name" { (post.author_name) }
                     span class="sep" { " · " }
-                    (moment(post.created_at))
+                    // The opening post of an article IS the article, dated
+                    // by its day; the comments under it were written at a
+                    // moment and keep their hour.
+                    @if i == 0 && topic.dated_by_day { (crate::clock::day(post.created_at, crate::clock::zone())) }
+                    @else { (moment(post.created_at)) }
                     @if post.edited { " (" (lang.t("edited")) ")" }
                 }
                 div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }

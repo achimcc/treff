@@ -36,6 +36,10 @@ pub struct Topic {
     pub author_name: String,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Mirrored from a file whose name carries a day and no hour. Such a topic
+    /// is shown with its day alone: `created_at` is midnight, and midnight is
+    /// not a moment anyone wrote at.
+    pub dated_by_day: bool,
 }
 
 /// Who wrote in a topic last, and when — the two things a list shows under a
@@ -332,6 +336,7 @@ fn topic_from(row: &sqlx::sqlite::SqliteRow) -> Topic {
         author_name: row.get("author_name"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+        dated_by_day: row.get::<Option<String>, _>("source_key").is_some(),
     }
 }
 

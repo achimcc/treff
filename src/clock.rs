@@ -35,6 +35,14 @@ pub fn stamp(unix_seconds: i64, zone: &TimeZone) -> String {
         .unwrap_or_else(|_| String::from("unknown"))
 }
 
+/// A timestamp as the day alone, in `zone` — for a thing dated by a day and
+/// not by a moment, such as an article mirrored from a file.
+pub fn day(unix_seconds: i64, zone: &TimeZone) -> String {
+    jiff::Timestamp::from_second(unix_seconds)
+        .and_then(|t| jiff::fmt::strtime::format("%Y-%m-%d", &t.to_zoned(zone.clone())))
+        .unwrap_or_else(|_| String::from("unknown"))
+}
+
 /// The zone every page is rendered in.
 ///
 /// Before [`install`] has run — in a test that never starts the program — this
