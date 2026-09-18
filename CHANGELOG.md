@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.9 — 2026-09-18
+
+- **rustls 0.23.45 (RUSTSEC-2026-0285).** Older versions accepted TLS 1.3
+  handshake messages across encryption level boundaries. Only the lock file
+  moves; nothing in the forum changes.
+
 ## 0.3.8 — 2026-09-14
 
 - **An article is dated by its day, and shows no hour.** The file name of a
