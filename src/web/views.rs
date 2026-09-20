@@ -69,7 +69,16 @@ pub fn layout_with_search(
                                 a class="up" href=(home) { (host_of(home)) }
                             }
                             span class="who" { (who.name) }
-                            a href="/auth/logout" { (lang.t("sign_out")) }
+                            // Ein Formular und kein Link: Abmelden AENDERT
+                            // etwas, und was ein Link tut, tut auch jeder,
+                            // der ihn nur abruft — ein Mailprogramm, das
+                            // Vorschauen holt, ein Chat, der eine eingefuegte
+                            // Adresse aufloest, ein `<img src>` auf einer
+                            // fremden Seite. Derselbe Grund, aus dem
+                            // `/t/{id}/follow` seit jeher ein POST ist.
+                            form class="leave" method="post" action="/auth/logout" {
+                                button type="submit" { (lang.t("sign_out")) }
+                            }
                         }
                     }
                 }

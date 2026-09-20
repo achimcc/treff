@@ -207,6 +207,10 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
         return (StatusCode::FORBIDDEN, "unknown host").into_response();
     }
 
+    if !same_origin_enough(&parts) {
+        return (StatusCode::FORBIDDEN, "that came from somewhere else").into_response();
+    }
+
     // `/u/` is open BY DESIGN: an unsubscribe link that asks for a sign-in is
     // not an unsubscribe link. It carries its own proof (an HMAC), so being
     // open costs nothing that the token does not already guard.
@@ -217,6 +221,45 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
     }
 
     next.run(Request::from_parts(parts, body)).await
+}
+
+/// The second line of defence against CSRF, and the first one that is ours.
+///
+/// The first is `SameSite=Lax` on the session cookie. It works, and it works
+/// in the browser — the server itself asked nothing, so an audit on
+/// 2026-09-15 could post a reply from a foreign origin and have it appear.
+/// Here the server asks.
+///
+/// **`Sec-Fetch-Site`, not `Origin` or `Referer`.** This site sends
+/// `Referrer-Policy: no-referrer` on purpose, so there is often no referrer
+/// to read; the fetch metadata a browser attaches is not something the page
+/// doing the asking can set or suppress. And it needs no host comparison:
+/// the browser has already done it.
+///
+/// Three decisions worth writing down:
+///
+/// * **Only methods that change something are asked.** A GET changes nothing
+///   here — since 2026-09-20 that includes `/auth/logout` — and a link in a
+///   mail or a chat must keep working.
+/// * **`same-site` is refused like `cross-site`.** Every space is its own
+///   host with its own groups, so a page served by a neighbouring space is
+///   as foreign as any other site.
+/// * **No header at all is let through.** CSRF borrows a BROWSER's cookies,
+///   and every browser that can be borrowed from sends these headers.
+///   Something that does not send them (a script, `curl`, a browser older
+///   than the header) has no cookies to borrow, so refusing it would cost
+///   reachability and buy nothing.
+fn same_origin_enough(parts: &Parts) -> bool {
+    if matches!(
+        parts.method,
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    ) {
+        return true;
+    }
+    match parts.headers.get("sec-fetch-site") {
+        None => true,
+        Some(site) => site.as_bytes() == b"same-origin",
+    }
 }
 
 /// The redirect to the sign-in, carrying the page that asked for it.
@@ -431,6 +474,14 @@ fn parse_pending(value: &str) -> Option<(crate::auth::oidc::PendingLogin, String
 /// Signing out ends the session IN THE DATABASE, not only in the browser.
 /// Dropping the cookie alone would leave a working session behind for anyone
 /// who kept a copy of it.
+///
+/// **A POST, because it changes something.** Until 2026-09-20 a bare `GET`
+/// ended the session, so anything that merely FETCHES a link ended it too: a
+/// mail client collecting previews, a chat unfurling a pasted address, an
+/// `<img src>` on any page in the world. None of that needs a forged form —
+/// the link is the attack, and `SameSite=Lax` does not hold a top-level GET
+/// back. It is the same reason `/t/{id}/follow` has been a POST since it was
+/// written; this was the one route that had been forgotten.
 async fn logout(State(app): State<AppState>, jar: PrivateCookieJar) -> Response {
     if let Some(id) = jar.get(SESSION_COOKIE)
         && let Err(e) = Sessions::destroy(&app.db, id.value()).await
@@ -1016,6 +1067,12 @@ async fn attach(
             .into_response();
     };
 
+    // What a photograph knows besides the photograph — where it was taken,
+    // when, with which camera — is removed BEFORE anything is written. Doing
+    // it on the way out instead would leave the location on the disk, and
+    // from there in every backup.
+    let bytes = crate::media::strip_metadata(&bytes, media_type);
+
     let id = match crate::auth::random_id() {
         Ok(id) => id,
         Err(e) => return server_error("cannot name an attachment", &e),
@@ -1160,7 +1217,8 @@ pub fn router(state: AppState) -> Router {
         .route("/u/{id}/{token}", get(unsubscribe_page))
         .route("/u/{id}/{token}", axum::routing::post(unsubscribe_now))
         .route("/auth/callback", get(callback))
-        .route("/auth/logout", get(logout))
+        // POST, nicht GET: s. den Kommentar an `logout`.
+        .route("/auth/logout", axum::routing::post(logout))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             require_session,

@@ -90,13 +90,13 @@ async fn signing_out_destroys_the_session() {
 
     let out = app
         .clone()
-        .oneshot(get("forum.example.org", "/auth/logout", Some(&cookie)))
+        .oneshot(sign_out("forum.example.org", &cookie))
         .await
         .expect("response");
     assert_ne!(
         out.status(),
         StatusCode::NOT_FOUND,
-        "every page links to /auth/logout"
+        "every page carries a sign-out form posting to /auth/logout"
     );
 
     // And not afterwards — asserted against the database's answer, by using
@@ -110,6 +110,106 @@ async fn signing_out_destroys_the_session() {
         StatusCode::SEE_OTHER,
         "the session is gone, so the request is sent to sign in again"
     );
+}
+
+/// Signing out is a POST, because it changes something.
+///
+/// Until 2026-09-20 a bare `GET /auth/logout` ended the session, and anything
+/// that fetches a link could therefore end it: a mail client scanning for
+/// previews, a chat unfurling a pasted address, an `<img src>` on any page in
+/// the world. None of those needs a forged form — the link is the attack.
+/// It is the same reason `/t/{id}/follow` has been a POST since it was
+/// written, applied to the one route that had been forgotten.
+#[tokio::test]
+async fn a_get_to_the_sign_out_address_keeps_the_session() {
+    let (dir, db, app) = common::setup_with_db().await;
+    let cookie = common::signed_in(&db, dir.path(), "someone", &["Household"]).await;
+
+    let fetched = app
+        .clone()
+        .oneshot(get("forum.example.org", "/auth/logout", Some(&cookie)))
+        .await
+        .expect("response");
+    assert_eq!(
+        fetched.status(),
+        StatusCode::METHOD_NOT_ALLOWED,
+        "a GET was answered instead of refused"
+    );
+
+    let after = app
+        .oneshot(get("forum.example.org", "/", Some(&cookie)))
+        .await
+        .expect("response");
+    assert_eq!(
+        after.status(),
+        StatusCode::OK,
+        "the session did not survive being looked at"
+    );
+}
+
+/// The page a person actually clicks: the sign-out has to be a form, or the
+/// POST above is a route nobody can reach.
+#[tokio::test]
+async fn every_page_carries_a_sign_out_form() {
+    let (dir, db, app) = common::setup_with_db().await;
+    let cookie = common::signed_in(&db, dir.path(), "someone", &["Household"]).await;
+
+    let page = common::body_of(
+        app.oneshot(get("forum.example.org", "/", Some(&cookie)))
+            .await
+            .expect("response"),
+    )
+    .await;
+
+    assert!(
+        page.contains(r#"action="/auth/logout""#) && page.contains(r#"method="post""#),
+        "no sign-out form on the page: {page}"
+    );
+    assert!(
+        !page.contains(r#"href="/auth/logout""#),
+        "a link to sign out is exactly what was removed: {page}"
+    );
+}
+
+/// A sign-out posted from somewhere else is still somebody else's doing.
+/// The gate from `frame.rs` covers this route too — the check sits in front
+/// of the routes, not in a handler, so it cannot be forgotten here.
+#[tokio::test]
+async fn a_cross_site_sign_out_is_refused() {
+    let (dir, db, app) = common::setup_with_db().await;
+    let cookie = common::signed_in(&db, dir.path(), "someone", &["Household"]).await;
+
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/auth/logout")
+        .header("Host", "forum.example.org")
+        .header("Cookie", &cookie)
+        .header("sec-fetch-site", "cross-site")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let after = app
+        .oneshot(get("forum.example.org", "/", Some(&cookie)))
+        .await
+        .expect("response");
+    assert_eq!(
+        after.status(),
+        StatusCode::OK,
+        "the session was ended anyway"
+    );
+}
+
+fn sign_out(host: &str, cookie: &str) -> Request<Body> {
+    axum::http::Request::builder()
+        .method("POST")
+        .uri("/auth/logout")
+        .header("Host", host)
+        .header("Cookie", cookie)
+        .header("sec-fetch-site", "same-origin")
+        .body(Body::empty())
+        .expect("request")
 }
 
 fn location(response: &axum::response::Response) -> &str {

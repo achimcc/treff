@@ -258,6 +258,94 @@ async fn an_attachment_needs_the_reading_group() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
+/// The audit's own measurement, turned into a test.
+///
+/// On 2026-09-15 a JPEG with a GPS IFD was uploaded, and it came back out of
+/// `/a/<id>` byte for byte: treff was handing everyone who could read a topic
+/// the place a photograph was taken. What is served must no longer carry it,
+/// and neither must what is on the disk — the second is the one that matters
+/// in a backup.
+#[tokio::test]
+async fn a_photograph_does_not_bring_its_location_along() {
+    let (dir, db, app) = setup_with_db().await;
+    let topic = a_topic(&db).await;
+    let cookie = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+
+    let response = app
+        .clone()
+        .oneshot(upload(
+            "forum.example.org",
+            &format!("/t/{topic}/attach"),
+            &cookie,
+            "holiday.jpg",
+            "image/jpeg",
+            &jpeg_with_gps(),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    let stored = files_in(dir.path());
+    assert_eq!(stored.len(), 1, "nothing on disk: {stored:?}");
+    let on_disk =
+        std::fs::read(dir.path().join("attachments").join(&stored[0])).expect("read back");
+    assert!(
+        !contains(&on_disk, b"GPSLatitude"),
+        "the file on disk still knows where it was taken"
+    );
+    assert!(
+        !contains(&on_disk, b"Exif"),
+        "the EXIF segment is still on disk"
+    );
+
+    let page = axum::body::to_bytes(
+        app.clone()
+            .oneshot(get("forum.example.org", &format!("/t/{topic}"), &cookie))
+            .await
+            .expect("response")
+            .into_body(),
+        1 << 20,
+    )
+    .await
+    .expect("body");
+    let page = String::from_utf8(page.to_vec()).expect("utf-8");
+    let start = page.find("/a/").expect("no image on the page");
+    let id: String = page[start + 3..]
+        .chars()
+        .take_while(|c| c.is_ascii_hexdigit())
+        .collect();
+
+    let served = app
+        .oneshot(get("forum.example.org", &format!("/a/{id}"), &cookie))
+        .await
+        .expect("response");
+    assert_eq!(served.status(), StatusCode::OK);
+    assert_eq!(
+        served.headers().get("content-type").expect("type"),
+        "image/jpeg",
+        "it is still served as the picture it is"
+    );
+    let bytes = axum::body::to_bytes(served.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    assert!(!contains(&bytes, b"GPSLatitude"));
+}
+
+/// A JPEG whose APP1 segment carries a GPS tag. Not a picture — a container
+/// with the one segment this test is about, and a start of scan after it.
+fn jpeg_with_gps() -> Vec<u8> {
+    let exif = b"Exif\x00\x00II*\x00GPSLatitude 51.9 GPSLongitude 7.6";
+    let mut v = vec![0xFF, 0xD8, 0xFF, 0xE1];
+    v.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+    v.extend_from_slice(exif);
+    v.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x02, 0x42, 0x42, 0xFF, 0xD9]);
+    v
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
 #[tokio::test]
 async fn uploading_follows_the_reply_right() {
     // In the blog nobody opens a topic, but everybody comments — and an

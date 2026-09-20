@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0 — 2026-09-20
+
+Three findings from the homeserver security audit (B43). Nothing in the forum
+looks different, except that signing out is now a button instead of a link.
+
+- **A photograph no longer brings its location along.** An upload was stored
+  and served back byte for byte, so a picture taken with a phone handed
+  everyone who could read the topic the place it was taken, the moment, and
+  the camera. `media::strip_metadata` now removes the metadata segments of
+  JPEG, PNG and WebP before anything is written — the file on the disk no
+  longer carries it either, which is the half that matters in a backup. It
+  strips rather than re-encodes: the reason, and what is deliberately kept,
+  are in ADR 0004.
+- **Signing out is a POST.** `GET /auth/logout` ended the session, so anything
+  that merely *fetches* a link ended it too: a mail client collecting
+  previews, a chat unfurling a pasted address, an `<img src>` on any page in
+  the world. None of that needs a forged form, and `SameSite=Lax` does not
+  hold a top-level GET back. It is the same reason `/t/{id}/follow` has always
+  been a POST — this was the route that had been forgotten.
+- **A second line of defence against CSRF.** There was one: `SameSite=Lax` on
+  the session cookie, which works in a browser and nowhere else. The server
+  itself asked nothing, and a cross-site POST to `/t/{id}/reply` created the
+  post. It now reads `Sec-Fetch-Site` on every method that changes something
+  — not `Origin` or `Referer`, because this site sends `Referrer-Policy:
+  no-referrer` on purpose and a browser attaches the fetch metadata anyway.
+  `same-site` is refused like `cross-site`: every space is its own host with
+  its own groups. A request with no fetch metadata at all is let through,
+  because a client that sends none has no borrowed cookies either.
+
 ## 0.3.9 — 2026-09-18
 
 - **rustls 0.23.45 (RUSTSEC-2026-0285).** Older versions accepted TLS 1.3
