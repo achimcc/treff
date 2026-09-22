@@ -22,8 +22,8 @@ treff sees as `sub`.
 
 | | |
 |---|---|
-| Open | **Task 1** — the `@` list leaves out whoever is writing |
-| Open | **Task 2** — the directory: accounts and groups from SCIM, in the database |
+| Done | **Task 1** — the `@` list leaves out whoever is writing |
+| Done | **Task 2** — the directory: accounts and groups from SCIM, in the database |
 | Open | **Task 3** — `/scim/v2`: the routes Authentik calls, on the internal listener |
 | Open | **Task 4** — module option, VM test, ADR 0007 |
 
@@ -31,25 +31,25 @@ treff sees as `sub`.
 
 ## Task 1 · The `@` list leaves out whoever is writing
 
-- [ ] `mentions::offered(db, space, except)`; `GET /mentionable` passes the
+- [x] `mentions::offered(db, space, except)`; `GET /mentionable` passes the
       viewer. Mentioning yourself does nothing, so offering yourself is noise.
 
 ## Task 2 · The directory
 
 **Files:** `migrations/0013_directory.sql`, `src/db/directory.rs` (new)
 
-- [ ] `scim_groups (id, name UNIQUE)`, `scim_members (group_id, subject)`;
+- [x] `scim_groups (id, name UNIQUE)`, `scim_members (group_id, subject)`;
       `accounts` gains `scim_user_name` (as sent, for the filter) and `active`.
-- [ ] `put_user(subject, user_name, display_name, email, active)` — the same
+- [x] `put_user(subject, user_name, display_name, email, active)` — the same
       row a sign-in writes: handle through `auth::checked_handle`, taken only if
       nobody else holds it; inactive clears handle and address and leaves the
       row (posts keep their author).
-- [ ] `delete_user`: like inactive, and out of every group.
-- [ ] Groups: `put_group(id, name, members)`, `add_members`, `remove_members`,
+- [x] `delete_user`: like inactive, and out of every group.
+- [x] Groups: `put_group(id, name, members)`, `add_members`, `remove_members`,
       `delete_group`; every change recomputes `groups_json` of the people it
       touched from the memberships — so `may_read` follows the directory.
-- [ ] Every change announces `EVERY_SPACE` (a person's bell may change).
-- [ ] Unit tests: a user from SCIM is mentionable once in a readable group; a
+- [x] Every change announces `EVERY_SPACE` (a person's bell may change).
+- [x] Unit tests: a user from SCIM is mentionable once in a readable group; a
       taken handle is not given twice; inactive and deleted strip the row and
       keep it; group changes move `groups_json`; a later sign-in writes the same
       row, no second one.

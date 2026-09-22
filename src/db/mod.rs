@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod attachments;
+pub mod directory;
 pub mod events;
 pub mod inbox;
 pub mod outbox;
