@@ -195,3 +195,211 @@ async fn the_page_marks_the_mention_and_names_the_handles() {
         "{page}"
     );
 }
+
+// --- The mail for a mention (task 5) ---------------------------------------
+
+/// An account with an address and the handle `<subject>`, the way a sign-in
+/// leaves it.
+async fn account(db: &treff::db::Db, subject: &str, groups: &[&str]) {
+    let who = treff::authz::Identity {
+        subject: subject.into(),
+        name: format!("{subject} the tester"),
+        groups: groups.iter().map(|g| (*g).to_string()).collect(),
+        email: Some(format!("{subject}@example.org")),
+        handle: Some(subject.into()),
+    };
+    treff::auth::Sessions::create(db, &who)
+        .await
+        .expect("account");
+}
+
+async fn owed_mail(db: &treff::db::Db) -> Vec<treff::db::outbox::Owed> {
+    treff::db::outbox::due(db, 100)
+        .await
+        .expect("due")
+        .into_iter()
+        .filter(|o| o.kanal == "mail")
+        .collect()
+}
+
+async fn compose(
+    db: &treff::db::Db,
+    row: &treff::db::outbox::Owed,
+) -> Option<treff::notify::Message> {
+    let config = treff::config::Config::parse(common::CONFIGURATION).expect("configuration");
+    treff::notify::compose(db, &config, &[3u8; 64], row)
+        .await
+        .expect("compose")
+}
+
+#[tokio::test]
+async fn a_mention_is_mailed_and_says_so() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    account(&db, "ben", &["Household"]).await;
+    let t = open(&app, &ada, "@ben come and look").await;
+
+    let owed = owed_mail(&db).await;
+    assert_eq!(owed.len(), 1, "{owed:?}");
+    assert_eq!(owed[0].subject, "ben");
+    assert_eq!(owed[0].reason, "mention");
+
+    let message = compose(&db, &owed[0]).await.expect("a message");
+    assert_eq!(message.to, "ben@example.org");
+    assert!(message.mention, "worded as a mention");
+    assert_eq!(message.link, format!("https://{FORUM}/t/{t}"));
+}
+
+/// A follower who is mentioned gets ONE mail, and it is the mention.
+#[tokio::test]
+async fn a_follower_who_is_mentioned_gets_one_mail() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    account(&db, "ben", &["Household"]).await;
+    let t = treff::db::topics::create_topic(
+        &db,
+        FORUM,
+        "general",
+        "ben's",
+        "so ben follows",
+        &treff::authz::Identity {
+            subject: "ben".into(),
+            name: "ben".into(),
+            groups: vec!["Household".into()],
+            email: None,
+            handle: Some("ben".into()),
+        },
+    )
+    .await
+    .expect("topic");
+    reply(&app, &ada, t, "@ben there").await;
+
+    let for_ben: Vec<_> = owed_mail(&db)
+        .await
+        .into_iter()
+        .filter(|o| o.subject == "ben")
+        .collect();
+    assert_eq!(for_ben.len(), 1, "{for_ben:?}");
+    assert_eq!(for_ben[0].reason, "mention");
+}
+
+/// CHECKED AGAIN WHEN THE MAIL IS WRITTEN. Somebody who lost the group
+/// between the post and the send is told nothing — not the title, not the
+/// text.
+#[tokio::test]
+async fn a_mention_mail_is_not_sent_to_somebody_who_lost_the_group() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    account(&db, "ben", &["Household"]).await;
+    open(&app, &ada, "@ben secret plans").await;
+    let owed = owed_mail(&db).await;
+    assert_eq!(owed.len(), 1);
+
+    sqlx::query("UPDATE accounts SET groups_json = '[\"Neighbours\"]' WHERE subject = 'ben'")
+        .execute(db.pool())
+        .await
+        .expect("lose the group");
+    assert!(compose(&db, &owed[0]).await.is_none());
+}
+
+/// The reply mail is what it was: it still has no business checking a
+/// mention's rule, and a follower still gets it.
+#[tokio::test]
+async fn a_reply_mail_is_still_a_reply_mail() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    account(&db, "ben", &["Household"]).await;
+    let t = open(&app, &ada, "opening").await;
+    let cem = signed_in(&db, dir.path(), "cem", &["Household"]).await;
+    reply(&app, &cem, t, "no mention here").await;
+
+    let for_ada: Vec<_> = owed_mail(&db)
+        .await
+        .into_iter()
+        .filter(|o| o.subject == "ada")
+        .collect();
+    assert_eq!(for_ada.len(), 1);
+    assert_eq!(for_ada[0].reason, "reply");
+}
+
+/// THE WAY OUT OF A MENTION MAIL turns off mention mails — the reply mail's
+/// link would unfollow a topic the person never followed. Without a session,
+/// twice, and afterwards the bell still rings but no mail is queued.
+#[tokio::test]
+async fn the_link_in_a_mention_mail_turns_mention_mails_off() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    account(&db, "ben", &["Household"]).await;
+    let t = open(&app, &ada, "@ben one").await;
+    let row = owed_mail(&db).await.remove(0);
+    let message = compose(&db, &row).await.expect("message");
+    let link = message.unsubscribe.expect("a way out travels with it");
+    assert!(link.contains(&format!("/u/{}/", row.id)), "{link}");
+    // The composer above signed with a test key; the router has its own, in
+    // the state directory, and the token is made with that one.
+    let key = treff::notify::unsubscribe::load_or_create_key(dir.path()).expect("key");
+    let path = format!(
+        "/u/{}/{}",
+        row.id,
+        treff::notify::unsubscribe::token(&key, row.id)
+    );
+
+    let bare = |method: &str| {
+        Request::builder()
+            .method(method)
+            .uri(&path)
+            .header("host", FORUM)
+            .header("accept-language", "de")
+            .body(Body::empty())
+            .expect("request")
+    };
+    let question = body_of(send(&app, bare("GET")).await).await;
+    assert!(
+        question.contains("mit @ erwaehnt"),
+        "the page says which kind: {question}"
+    );
+    for _ in 0..2 {
+        let done = send(&app, bare("POST")).await;
+        assert_eq!(done.status(), StatusCode::OK);
+    }
+    let on: i64 = sqlx::query_scalar("SELECT mention_mail FROM accounts WHERE subject = 'ben'")
+        .fetch_one(db.pool())
+        .await
+        .expect("flag");
+    assert_eq!(on, 0);
+
+    reply(&app, &ada, t, "@ben two").await;
+    assert!(
+        owed_mail(&db).await.iter().all(|o| o.id == row.id),
+        "no new mail for ben"
+    );
+    assert_eq!(
+        mentions(&entries(&db, "ben").await),
+        2,
+        "the bell still rings"
+    );
+}
+
+#[tokio::test]
+async fn mention_mails_can_be_switched_back_on() {
+    let (dir, db, app) = setup_with_db().await;
+    let ben = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    let set = |on: &str| post("/notifications/mention-mail", &ben, &format!("on={on}"));
+    let flag = || async {
+        sqlx::query_scalar::<_, i64>("SELECT mention_mail FROM accounts WHERE subject = 'ben'")
+            .fetch_one(db.pool())
+            .await
+            .expect("flag")
+    };
+
+    let page = body_of(send(&app, get("/notifications", &ben)).await).await;
+    assert!(
+        page.contains("action=\"/notifications/mention-mail\""),
+        "{page}"
+    );
+
+    assert_eq!(send(&app, set("0")).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(flag().await, 0);
+    assert_eq!(send(&app, set("1")).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(flag().await, 1);
+}

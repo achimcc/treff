@@ -37,6 +37,8 @@ pub struct Owed {
     pub post_id: i64,
     pub space: String,
     pub attempts: i64,
+    /// `reply` or `mention` — see `migrations/0011_mention_mail.sql`.
+    pub reason: String,
 }
 
 /// Queues one notification per follower, inside the caller's transaction.
@@ -55,7 +57,12 @@ pub async fn queue_for_followers(
         "INSERT INTO outbox (subject, topic_id, post_id, space, created_at, next_try_at, kanal)
          SELECT subject, ?, ?, ?, ?, ?, 'mail'
            FROM subscriptions
-          WHERE topic_id = ? AND subject <> ?",
+          WHERE topic_id = ? AND subject <> ?
+            -- Somebody mentioned in this very post gets the mention mail
+            -- instead (`queue_mentions_in`, written first in the same
+            -- transaction): one mail, and the more personal one.
+            AND subject NOT IN
+                (SELECT subject FROM inbox WHERE post_id = ? AND reason = 'mention')",
     )
     .bind(topic_id)
     .bind(post_id)
@@ -64,6 +71,7 @@ pub async fn queue_for_followers(
     .bind(now)
     .bind(topic_id)
     .bind(writer)
+    .bind(post_id)
     .execute(&mut **tx)
     .await?;
 
@@ -86,6 +94,36 @@ pub async fn queue_for_followers(
     .await?;
 
     Ok(result.rows_affected())
+}
+
+/// One mention mail per subject, inside the caller's transaction — for the
+/// subjects `inbox::note_mentions_in` has just told, and only those who have
+/// not turned mention mails off.
+pub async fn queue_mentions_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    space: &str,
+    topic_id: i64,
+    post_id: i64,
+    subjects: &[String],
+) -> anyhow::Result<()> {
+    let now = crate::db::topics::now();
+    for subject in subjects {
+        sqlx::query(
+            "INSERT INTO outbox
+                    (subject, topic_id, post_id, space, created_at, next_try_at, kanal, reason)
+             SELECT subject, ?, ?, ?, ?, ?, 'mail', 'mention'
+               FROM accounts WHERE subject = ? AND mention_mail = 1",
+        )
+        .bind(topic_id)
+        .bind(post_id)
+        .bind(space)
+        .bind(now)
+        .bind(now)
+        .bind(subject)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 /// One webhook for an event that has no subscribers yet — a new topic.
@@ -120,7 +158,7 @@ pub async fn queue_webhook(
 pub async fn due(db: &Db, limit: i64) -> anyhow::Result<Vec<Owed>> {
     use sqlx::Row;
     let rows = sqlx::query(
-        "SELECT id, subject, topic_id, post_id, space, attempts, kanal
+        "SELECT id, subject, topic_id, post_id, space, attempts, kanal, reason
            FROM outbox
           WHERE sent_at IS NULL AND next_try_at <= ? AND attempts < ?
           ORDER BY id
@@ -141,6 +179,7 @@ pub async fn due(db: &Db, limit: i64) -> anyhow::Result<Vec<Owed>> {
             post_id: r.get("post_id"),
             space: r.get("space"),
             attempts: r.get("attempts"),
+            reason: r.get("reason"),
         })
         .collect())
 }
@@ -176,14 +215,14 @@ pub async fn mark_failed(db: &Db, id: i64, attempts: i64, error: &str) -> anyhow
 /// The unsubscribe link carries only the row id — no subject, no name,
 /// nothing that ends up legible in a proxy log. Everything else follows from
 /// here.
-pub async fn who_and_what(db: &Db, id: i64) -> anyhow::Result<Option<(String, i64)>> {
+pub async fn who_and_what(db: &Db, id: i64) -> anyhow::Result<Option<(String, i64, String)>> {
     use sqlx::Row;
     Ok(
-        sqlx::query("SELECT subject, topic_id FROM outbox WHERE id = ?")
+        sqlx::query("SELECT subject, topic_id, reason FROM outbox WHERE id = ?")
             .bind(id)
             .fetch_optional(db.pool())
             .await?
-            .map(|r| (r.get("subject"), r.get("topic_id"))),
+            .map(|r| (r.get("subject"), r.get("topic_id"), r.get("reason"))),
     )
 }
 

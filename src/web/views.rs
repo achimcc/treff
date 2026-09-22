@@ -241,13 +241,16 @@ pub fn search_page(
 /// The unsubscribe page. Deliberately plain and deliberately outside the
 /// signed-in layout: whoever opens it may not be signed in, and asking them to
 /// be would defeat the link.
-pub fn unsubscribe_page(space: &Space, lang: Lang, id: i64, token: &str) -> Markup {
+/// `mention` says which link this is: a reply's (stop this topic) or a
+/// mention's (stop mails about mentions). The button does what the question
+/// says, and the question says what the button does.
+pub fn unsubscribe_page(space: &Space, lang: Lang, id: i64, token: &str, mention: bool) -> Markup {
     bare(
         space,
         lang,
         lang.t("unsubscribe_title"),
         html! {
-            p { (lang.t("unsubscribe_question")) }
+            p { (lang.t(if mention { "unsubscribe_mentions_question" } else { "unsubscribe_question" })) }
             form method="post" action={ "/u/" (id) "/" (token) } {
                 button type="submit" { (lang.t("unsubscribe_confirm")) }
             }
@@ -255,12 +258,12 @@ pub fn unsubscribe_page(space: &Space, lang: Lang, id: i64, token: &str) -> Mark
     )
 }
 
-pub fn unsubscribed_page(space: &Space, lang: Lang) -> Markup {
+pub fn unsubscribed_page(space: &Space, lang: Lang, mention: bool) -> Markup {
     bare(
         space,
         lang,
         lang.t("unsubscribed_title"),
-        html! { p { (lang.t("unsubscribed_note")) } },
+        html! { p { (lang.t(if mention { "unsubscribed_mentions_note" } else { "unsubscribed_note" })) } },
     )
 }
 
@@ -652,6 +655,7 @@ pub fn notifications_page(
     lang: Lang,
     bell: Bell,
     entries: &[crate::db::inbox::Entry],
+    mention_mail: bool,
 ) -> Markup {
     use crate::db::inbox::Entry;
     let body = html! {
@@ -701,6 +705,20 @@ pub fn notifications_page(
                         }
                     }
                 }
+            }
+        }
+    };
+    let body = html! {
+        (body)
+        // The switch sits under the list, not above it: it is visited once,
+        // the list every day.
+        form class="follow mention-mail" method="post" action="/notifications/mention-mail" {
+            input type="hidden" name="on" value=(if mention_mail { "0" } else { "1" });
+            button type="submit" {
+                (lang.t(if mention_mail { "mention_mail_off" } else { "mention_mail_on" }))
+            }
+            span class="note" {
+                (lang.t(if mention_mail { "mention_mail_is_on" } else { "mention_mail_is_off" }))
             }
         }
     };

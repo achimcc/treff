@@ -15,7 +15,7 @@ stage is called done.
 | Done | **Task 2** — the inbox, filled by replies |
 | Done | **Task 3** — the bell and `/notifications` |
 | Done | **Task 4** — `@handle`: found, checked, noted, highlighted |
-| Open | **Task 5** — the mention mail, and its way out |
+| Done | **Task 5** — the mention mail, and its way out |
 
 ---
 
@@ -139,19 +139,21 @@ highlighted" are decided together), `src/db/topics.rs`, `src/web/mod.rs`,
 `src/notify/mod.rs`, `src/notify/mail.rs`, `src/web/mod.rs`,
 `src/web/views.rs`, `i18n/*.toml`, `tests/notifying.rs`, `tests/mentions.rs`
 
-- [ ] `outbox.reason TEXT NOT NULL DEFAULT 'reply'`; a mention queues
+- [x] `outbox.reason TEXT NOT NULL DEFAULT 'reply'`; a mention queues
       `reason = 'mention'` for the mentioned subject, but only if
       `accounts.mention_mail = 1`.
-- [ ] `compose` checks a mention again at send time: the account's stored
+- [x] `compose` checks a mention again at send time: the account's stored
       groups must still pass `may_read` for the space, or the row is done with
       nothing to send. `Message` gains the reason, and the mail's subject and
       first line say "mentioned you" instead of "replied".
-- [ ] The existing `/u/{id}/{token}` link looks at the row's reason: for a
+- [x] The existing `/u/{id}/{token}` link looks at the row's reason: for a
       reply it unfollows (as now), for a mention it sets `mention_mail = 0`.
       The page's question and answer say which.
-- [ ] A switch on `/notifications` to turn mention mails back on (and off),
+- [x] A switch on `/notifications` to turn mention mails back on (and off),
       a `POST`.
-- [ ] Tests: the mail over the one-shot SMTP server says "mentioned"; a row
+- [x] Tests: the wording ("mentioned you in", both parts) as a unit test of
+      `mail::body_parts` — the transport itself did not change, and the
+      one-shot SMTP test still carries it; the composed message for a mention; a row
       whose recipient lost the group sends nothing; the link turns mention
       mails off without a session and is idempotent; after that a mention
       still reaches the bell but queues no mail.

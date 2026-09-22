@@ -130,7 +130,8 @@ pub async fn create_topic_mentioning(
     // exists while its subscription does not — after a crash, forever, and
     // silently.
     crate::db::subscriptions::follow_in(&mut tx, &author.subject, id).await?;
-    crate::db::inbox::note_mentions_in(&mut tx, space, id, post_id, mentioned).await?;
+    let told = crate::db::inbox::note_mentions_in(&mut tx, space, id, post_id, mentioned).await?;
+    crate::db::outbox::queue_mentions_in(&mut tx, space, id, post_id, &told).await?;
 
     // EIN NEUES THEMA IST AUCH EIN EREIGNIS. Per Mail geht dabei nichts raus —
     // der einzige Abonnent ist, wer es geschrieben hat —, aber der Betreiber
@@ -195,7 +196,8 @@ pub async fn add_reply_mentioning(
         .bind(topic_id)
         .fetch_one(&mut *tx)
         .await?;
-    crate::db::inbox::note_mentions_in(&mut tx, &space, topic_id, id, mentioned).await?;
+    let told = crate::db::inbox::note_mentions_in(&mut tx, &space, topic_id, id, mentioned).await?;
+    crate::db::outbox::queue_mentions_in(&mut tx, &space, topic_id, id, &told).await?;
     crate::db::outbox::queue_for_followers(&mut tx, &space, topic_id, id, &author.subject).await?;
     // And the bell, from the same list of followers in the same transaction —
     // so the bell and the mail cannot disagree about who was told.
@@ -315,7 +317,9 @@ pub async fn update_post_mentioning(
             .bind(post_id)
             .fetch_one(&mut *tx)
             .await?;
-        crate::db::inbox::note_mentions_in(&mut tx, space, topic_id, post_id, mentioned).await?;
+        let told = crate::db::inbox::note_mentions_in(&mut tx, space, topic_id, post_id, mentioned)
+            .await?;
+        crate::db::outbox::queue_mentions_in(&mut tx, space, topic_id, post_id, &told).await?;
     }
     tx.commit().await?;
     Ok(true)

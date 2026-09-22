@@ -139,12 +139,20 @@ impl Transport for Mailer {
 /// Plain text and HTML. Plain first, because that is what a reader without
 /// HTML sees, and because a notification is three lines and a link.
 fn body_parts(message: &Message) -> MultiPart {
+    // What happened, in two words. The mail is English as it always was; the
+    // interface is bilingual, a notification has no idea which language its
+    // reader chose on a page it has never seen.
+    let what = if message.mention {
+        "mentioned you in"
+    } else {
+        "wrote in"
+    };
     let text = format!(
-        "{} wrote in \"{}\":\n\n{}\n\n{}\n",
+        "{} {what} \"{}\":\n\n{}\n\n{}\n",
         message.author, message.topic_title, message.body, message.link
     );
     let html = format!(
-        "<p><b>{}</b> wrote in \u{201c}{}\u{201d}:</p><blockquote>{}</blockquote><p><a href=\"{}\">{}</a></p>",
+        "<p><b>{}</b> {what} \u{201c}{}\u{201d}:</p><blockquote>{}</blockquote><p><a href=\"{}\">{}</a></p>",
         escape(&message.author),
         escape(&message.topic_title),
         escape(&message.body),
@@ -228,6 +236,7 @@ mod tests {
             body: "a & b".into(),
             link: "https://example.org/t/1".into(),
             unsubscribe: None,
+            mention: false,
         };
         // `formatted()` and not `Debug`: what matters is the bytes that leave
         // the process, and quoted-printable encoding is part of them.
@@ -255,5 +264,32 @@ mod tests {
             .nth(1)
             .expect("a plain part");
         assert!(plain.contains("<script> wrote"), "{plain}");
+    }
+
+    /// A mention says so, in both parts. "wrote in" would be true and would
+    /// hide the one thing that makes this mail different: somebody meant you.
+    #[test]
+    fn a_mention_is_worded_as_one() {
+        let m = Message {
+            to: "a@example.org".into(),
+            space_title: "F".into(),
+            topic_title: "Holiday".into(),
+            author: "Konrad".into(),
+            body: "@ada look".into(),
+            link: "https://example.org/t/1".into(),
+            unsubscribe: None,
+            mention: true,
+        };
+        let bytes = body_parts(&m).formatted();
+        let formatted = String::from_utf8_lossy(&bytes).replace("=\r\n", "");
+        assert!(
+            formatted.contains("Konrad mentioned you in \"Holiday\""),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("<b>Konrad</b> mentioned you in"),
+            "{formatted}"
+        );
+        assert!(!formatted.contains("wrote in"), "{formatted}");
     }
 }

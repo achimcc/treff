@@ -799,3 +799,6 @@ header nav .bell:hover { color: var(--on); }
    type — quiet, like everything else that is there to be copied. */
 .mention { color: var(--on); font-family: var(--mono); font-size: .92em; }
 .byline .handle { color: var(--murmur); font-family: var(--mono); }
+/* `.follow` pulls itself up under a heading; under a list it needs the
+   opposite, or its button sits on the list's last rule. */
+.mention-mail { margin: 1.75rem 0 0; }

@@ -37,6 +37,9 @@ pub struct Message {
     pub link: String,
     /// The one-click way out, and the reason task 4 exists.
     pub unsubscribe: Option<String>,
+    /// Somebody wrote `@handle` for the recipient, as opposed to replying in
+    /// a topic they follow. Decides the wording, and what the way out does.
+    pub mention: bool,
 }
 
 /// Drains what is due, once. Returns how many went out.
@@ -141,6 +144,15 @@ pub async fn compose(
         return Ok(None);
     };
 
+    // A MENTION IS ASKED AGAIN, HERE. Between the post and this moment the
+    // person may have lost the group that lets them read the space — and a
+    // mail would hand them the title and the text regardless. The account
+    // row is as fresh as their last sign-in; see the design's "Known limit".
+    let mention = row.reason == "mention";
+    if mention && !crate::db::accounts::may_read_now(db, &row.subject, space).await? {
+        return Ok(None);
+    }
+
     Ok(Some(Message {
         to,
         space_title: space.title.clone(),
@@ -156,6 +168,7 @@ pub async fn compose(
             row.id,
             unsubscribe::token(unsubscribe_key, row.id)
         )),
+        mention,
     }))
 }
 
@@ -202,6 +215,7 @@ mod tests {
                 body: "hello".into(),
                 link: "https://forum.example.org/t/1".into(),
                 unsubscribe: None,
+                mention: false,
             }))
         })
     }

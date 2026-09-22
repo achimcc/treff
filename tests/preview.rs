@@ -149,6 +149,17 @@ async fn render_the_pages_for_a_look() {
             .await
             .expect("reply to t3");
     }
+    // A mention of the reader (who signs in below as `s1` and gets the handle
+    // `s1`), so the list shows one and the topic page highlights it.
+    treff::db::topics::add_reply_mentioning(
+        &db,
+        t1,
+        "@s1 can you bring the long cable on Friday?",
+        &ben,
+        &["s1".to_string()],
+    )
+    .await
+    .expect("a mention");
 
     treff::db::topics::create_topic(
         &db,

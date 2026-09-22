@@ -601,7 +601,14 @@ async fn unsubscribe_page(
         // old or was never real is not something to hand out.
         return not_found();
     }
-    crate::web::views::unsubscribe_page(&space, lang, id, &token).into_response()
+    // The question names what the button will do — stop one topic, or stop
+    // mails about mentions. A row that is gone asks the topic question, which
+    // is the one this page always asked.
+    let mention = match crate::db::outbox::who_and_what(&app.db, id).await {
+        Ok(found) => found.is_some_and(|(_, _, reason)| reason == "mention"),
+        Err(e) => return server_error("cannot look up a notification", &e),
+    };
+    crate::web::views::unsubscribe_page(&space, lang, id, &token, mention).into_response()
 }
 
 /// Cancels ONE subscription. Never all of them: somebody who is done with one
@@ -621,7 +628,16 @@ async fn unsubscribe_now(
         return not_found();
     }
     match crate::db::outbox::who_and_what(&app.db, id).await {
-        Ok(Some((subject, topic_id))) => {
+        // A MENTION'S LINK TURNS OFF MENTION MAILS, not a subscription: the
+        // person was never following the topic, and unfollowing it would
+        // leave them exactly as mailed as before.
+        Ok(Some((subject, _, reason))) if reason == "mention" => {
+            if let Err(e) = crate::db::accounts::set_mention_mail(&app.db, &subject, false).await {
+                return server_error("cannot turn off mention mails", &e);
+            }
+            return crate::web::views::unsubscribed_page(&space, lang, true).into_response();
+        }
+        Ok(Some((subject, topic_id, _))) => {
             if let Err(e) = crate::db::subscriptions::unfollow(&app.db, &subject, topic_id).await {
                 return server_error("cannot unsubscribe", &e);
             }
@@ -632,7 +648,7 @@ async fn unsubscribe_now(
         Ok(None) => {}
         Err(e) => return server_error("cannot look up a notification", &e),
     }
-    crate::web::views::unsubscribed_page(&space, lang).into_response()
+    crate::web::views::unsubscribed_page(&space, lang, false).into_response()
 }
 
 /// The number on the bell for this person in this space.
@@ -668,8 +684,41 @@ async fn notifications(
             Ok(e) => e,
             Err(e) => return server_error("cannot list notifications", &e),
         };
+    let mention_mail = match crate::db::accounts::wants_mention_mail(&app.db, &who.subject).await {
+        Ok(on) => on,
+        Err(e) => return server_error("cannot read a setting", &e),
+    };
     let bell = bell(&app, &space, &who).await;
-    crate::web::views::notifications_page(&space, &who, lang, bell, &entries).into_response()
+    crate::web::views::notifications_page(&space, &who, lang, bell, &entries, mention_mail)
+        .into_response()
+}
+
+#[derive(serde::Deserialize)]
+pub struct MentionMail {
+    on: String,
+}
+
+/// The switch on `/notifications`, and the way back after the one-click link
+/// in a mention mail turned mention mails off.
+async fn set_mention_mail(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Form(form): axum::extract::Form<MentionMail>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    // Exactly `1` or `0`; anything else is not a guess at what was meant.
+    let on = match form.on.as_str() {
+        "1" => true,
+        "0" => false,
+        _ => return bad_request("on is 1 or 0"),
+    };
+    match crate::db::accounts::set_mention_mail(&app.db, &who.subject, on).await {
+        Ok(()) => Redirect::to("/notifications").into_response(),
+        Err(e) => server_error("cannot change a setting", &e),
+    }
 }
 
 async fn read_all(
@@ -1310,6 +1359,10 @@ pub fn router(state: AppState) -> Router {
         .route("/search", get(search_page))
         .route("/notifications", get(notifications))
         .route("/notifications/read", axum::routing::post(read_all))
+        .route(
+            "/notifications/mention-mail",
+            axum::routing::post(set_mention_mail),
+        )
         .route("/t/{id}", get(topic_page))
         .route("/c/{slug}/new", axum::routing::post(open_topic))
         .route("/t/{id}/reply", axum::routing::post(reply))
