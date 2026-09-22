@@ -17,15 +17,21 @@ groups in their token. No local accounts, no passwords, no open registration.
   Those files keep their own front matter; `title_key` says which key holds
   the title, so a German newsletter writing `titel:` needs no second key.
 
+- **A bell** in the header counts what is new: replies in topics you follow,
+  bundled per topic, and **`@handle` mentions**, one by one. A mention tells
+  the person — in the bell and by mail — only if their groups let them read
+  the space; otherwise it is plain text, and nothing on the page says whether
+  the handle belongs to anybody.
+
 An empty group list grants nothing, never everything. An unknown `Host` is
 refused rather than mapped to the first space. Missing OIDC settings stop the
 program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.3.2** — everything below works and is covered by tests. It is in
-service on one host since 2026-09-06; nobody but its author has posted in it
-yet. Search and notifications are the next stage.
+Early. **v0.5.0** — everything below works and is covered by tests. It is in
+service on one host since 2026-09-06. Stage 2 brought notifications and
+search, stage 3 the bell and mentions (`docs/plan-stage-3.md`).
 
 ## Configuration
 
@@ -148,7 +154,13 @@ a groups claim in the ID token. Since 0.3.0 it also asks for the `email`
 scope: an address is what notifications are sent to. It stays **optional** —
 a provider that sends no address is one whose people get no mail, not one
 whose people are locked out — but the scope has to be offered, or the
-authorization request is refused outright. Two worked examples:
+authorization request is refused outright.
+
+Since 0.5.0 the `preferred_username` claim is a person's **handle**, what
+others type after an `@`. It is taken as it is — lower-cased, and only if it
+is `[a-z0-9._-]`, at most 64 characters — or not at all; a person without one
+cannot be mentioned and notices nothing else. Both providers below send it
+with the `profile` scope. Two worked examples:
 
 **Authentik** — create an OAuth2/OpenID provider with client type
 *confidential*, one redirect URI **per space**

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.0 — 2026-09-22
+
+The bell and `@`-mentions — asked for by a member of the forum, who gets a
+mail for every reply and wanted the same at a glance (design and plan:
+`docs/design-bell-and-mentions.md`, `docs/plan-stage-3.md`).
+
+- **A bell in the header**, with the number of unread entries, leading to
+  `/notifications`. Replies in a topic you follow are **bundled per topic**
+  ("3 new replies in …, latest from …"), mentions stand **one by one**.
+  Opening a topic reads its entries; "mark all as read" reads the rest. Each
+  space has its own bell. Still no script: the number is rendered with the
+  page.
+- **`@handle` mentions.** The handle is the provider's `preferred_username`,
+  stored on the account at sign-in, and shown next to the name on every post
+  so it can be copied. A mention tells the person in the bell and by mail —
+  **only if the groups of their last sign-in let them read the space**, and
+  checked again when the mail is written. Otherwise nothing happens and the
+  handle stays plain text, rendered exactly like one that belongs to nobody.
+  A follower who is mentioned is told once, as a mention. Mentions in code,
+  in links and in addresses are not mentions.
+- **A mention mail has its own way out**: its one-click link turns off mails
+  for mentions (the bell keeps them), and `/notifications` turns them back
+  on. A reply mail's link still unfollows the topic.
+- The header wraps on a narrow screen instead of pushing the page sideways —
+  it did that before the bell as well.
+- Three migrations: `0009_handles`, `0010_inbox`, `0011_mention_mail`.
+
 ## 0.4.0 — 2026-09-20
 
 Three findings from the homeserver security audit (B43). Nothing in the forum
