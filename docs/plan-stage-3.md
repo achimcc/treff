@@ -14,7 +14,7 @@ stage is called done.
 | Done | **Task 1** — a handle and the groups on the account |
 | Done | **Task 2** — the inbox, filled by replies |
 | Done | **Task 3** — the bell and `/notifications` |
-| Open | **Task 4** — `@handle`: found, checked, noted, highlighted |
+| Done | **Task 4** — `@handle`: found, checked, noted, highlighted |
 | Open | **Task 5** — the mention mail, and its way out |
 
 ---
@@ -96,20 +96,22 @@ unit tests for the claim are red-then-green.
 ## Task 4 · `@handle`: found, checked, noted, highlighted
 
 **Files:** `src/markup.rs`, `src/db/inbox.rs`, `src/db/accounts.rs` (new),
-`src/db/topics.rs`, `src/web/mod.rs`, `src/web/views.rs`, `src/web/style.css`,
+`src/mentions.rs` (new: the one place where "who is told" and "what is
+highlighted" are decided together), `src/db/topics.rs`, `src/web/mod.rs`,
+`src/web/views.rs`, `src/web/style.css`,
 `tests/mentions.rs` (new)
 
-- [ ] `markup::mentions(markdown) -> Vec<String>`, on the comrak AST: text
+- [x] `markup::mentions(markdown) -> Vec<String>`, on the comrak AST: text
       nodes only (not code, not inside links), an `@` at the start or after a
       character that is not `[A-Za-z0-9._%+-]`, the handle pattern of task 1,
       lower-cased, deduplicated. Unit tests: plain, start of text, after
       punctuation, `user@example.org`, a code span, a code block, a link text,
       a URL, uppercase.
-- [ ] `db::accounts::mentionable(db, handles) -> Vec<(subject, handle, groups)>`
+- [x] `db::accounts::mentionable(db, handles) -> Vec<(subject, handle, groups)>`
       and, in the handler, `authz::may_read` against the space on those
       groups. What survives is the list of subjects to notify; the writer is
       removed from it.
-- [ ] `create_topic`, `add_reply` and `update_post` get `…_mentioning`
+- [x] `create_topic`, `add_reply` and `update_post` get `…_mentioning`
       variants taking that list; the old functions call them with an empty
       list, so the existing callers stay as they are. Inside the transaction,
       **mentions first**: one `mention` row per subject, `ON CONFLICT DO
@@ -117,12 +119,15 @@ unit tests for the claim are red-then-green.
       5). The reply rows come after and therefore lose the conflict for a
       follower who was mentioned — one entry, and the follower's reply mail is
       left out for exactly those subjects.
-- [ ] Rendering: `markup::render_with(markdown, &mentionable_handles)` wraps a
+- [x] Rendering: `markup::render_with(markdown, &mentionable_handles)` wraps a
       mentionable `@handle` in `<span class="mention">`; the set comes from the
       same check as above, computed once per topic page. Everything else stays
       text — an unknown handle and a forbidden one render identically.
-- [ ] The handle next to the author's name on each post, from `accounts`.
-- [ ] Route tests: mention of a reader → one entry; of somebody without the
+- [x] The handle next to the author's name on each post, from `accounts`.
+- [x] Known and accepted: a follower who already had a reply entry for a
+      post is not told again when an edit adds a mention of them to it — the
+      primary key decides, and they were told about that post once.
+- [x] Route tests: mention of a reader → one entry; of somebody without the
       space's groups → nothing and no highlight, page byte-identical to an
       unknown handle; of yourself → nothing; follower mentioned → one entry;
       edit that adds a mention → one entry, a second edit → still one.

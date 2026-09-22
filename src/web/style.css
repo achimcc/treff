@@ -791,3 +791,11 @@ header nav .bell:hover { color: var(--on); }
 .inbox li.new a::before { content: "* "; color: var(--on); }
 .inbox b { font-weight: 600; }
 .read-all { margin: -.5rem 0 1rem; }
+
+/* --- Mentions ---------------------------------------------------------- */
+
+/* A mention reads like the name it is, in the signal colour: somebody was
+   meant, and they will see it. `.handle` next to a byline is the address to
+   type — quiet, like everything else that is there to be copied. */
+.mention { color: var(--on); font-family: var(--mono); font-size: .92em; }
+.byline .handle { color: var(--murmur); font-family: var(--mono); }

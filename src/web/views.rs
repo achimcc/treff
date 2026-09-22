@@ -521,6 +521,11 @@ pub struct TopicView<'a> {
     pub topic: &'a Topic,
     pub posts: &'a [Post],
     pub following: bool,
+    /// The handles that are marked up as mentions (`mentions::highlighted`).
+    pub highlighted: &'a std::collections::HashSet<String>,
+    /// Author subject → handle, shown next to the name so it can be copied:
+    /// there is no autocomplete without script.
+    pub handles: &'a std::collections::HashMap<String, String>,
 }
 
 pub fn topic_page(
@@ -535,6 +540,8 @@ pub fn topic_page(
         topic,
         posts,
         following,
+        highlighted,
+        handles,
     } = view;
     let may_reply = category.is_some_and(|c| crate::authz::may_reply(who, c));
     let body = html! {
@@ -566,6 +573,9 @@ pub fn topic_page(
             article class="post" id={ "p" (post.id) } {
                 p class="byline" {
                     span class="name" { (post.author_name) }
+                    @if let Some(handle) = handles.get(&post.author_subject) {
+                        " " span class="handle" { "@" (handle) }
+                    }
                     span class="sep" { " · " }
                     // The opening post of an article IS the article, dated
                     // by its day; the comments under it were written at a
@@ -574,7 +584,7 @@ pub fn topic_page(
                     @else { (moment(post.created_at)) }
                     @if post.edited { " (" (lang.t("edited")) ")" }
                 }
-                div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
+                div class="body" { (PreEscaped(crate::markup::render_with(&post.body_markdown, highlighted))) }
                 // Only on your own — and the display is not the defence: the
                 // query refuses the same thing again, on its own.
                 @if crate::authz::may_modify(who, &post.author_subject) {

@@ -84,6 +84,46 @@ pub async fn note_replies_in(
     Ok(())
 }
 
+/// One `mention` entry per subject, inside the caller's transaction, and the
+/// subjects for whom one was actually written.
+///
+/// The return value is how an edit tells a NEW mention from an old one: a
+/// person who already has an entry for this post gets no second one, and is
+/// not in the list — so the caller queues a mail only for the people this
+/// call has just told.
+///
+/// Call it BEFORE `note_replies_in` in the same transaction: the primary key
+/// then keeps the mention and turns the follower's reply entry into a no-op.
+pub async fn note_mentions_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    space: &str,
+    topic_id: i64,
+    post_id: i64,
+    subjects: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let now = crate::db::topics::now();
+    let mut told = Vec::new();
+    for subject in subjects {
+        let inserted = sqlx::query(
+            "INSERT INTO inbox (subject, space, topic_id, post_id, reason, created_at)
+             VALUES (?, ?, ?, ?, 'mention', ?)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(subject)
+        .bind(space)
+        .bind(topic_id)
+        .bind(post_id)
+        .bind(now)
+        .execute(&mut **tx)
+        .await?
+        .rows_affected();
+        if inserted == 1 {
+            told.push(subject.clone());
+        }
+    }
+    Ok(told)
+}
+
 /// What the bell shows: unread mentions plus topics with unread replies —
 /// the same units the page lists, so the number and the list agree.
 pub async fn unread_count(db: &Db, subject: &str, space: &str) -> anyhow::Result<i64> {

@@ -845,12 +845,31 @@ async fn topic_page(
                 tracing_error("cannot mark a topic read", &e);
             }
             let bell = bell(&app, &space, &who).await;
+            // Highlighted by the same rule that decides who is told — see
+            // `mentions` for why that has to be one answer and not two.
+            let highlighted = match crate::mentions::highlighted(
+                &app.db,
+                &space,
+                posts.iter().map(|p| p.body_markdown.as_str()),
+            )
+            .await
+            {
+                Ok(h) => h,
+                Err(e) => return server_error("cannot look up mentions", &e),
+            };
+            let authors: Vec<String> = posts.iter().map(|p| p.author_subject.clone()).collect();
+            let handles = match crate::db::accounts::handles_of(&app.db, &authors).await {
+                Ok(h) => h,
+                Err(e) => return server_error("cannot look up handles", &e),
+            };
             let category = space.category(&topic.category);
             let view = crate::web::views::TopicView {
                 category,
                 topic: &topic,
                 posts: &posts,
                 following,
+                highlighted: &highlighted,
+                handles: &handles,
             };
             crate::web::views::topic_page(&space, &who, lang, bell, view).into_response()
         }
@@ -931,7 +950,21 @@ async fn open_topic(
         Err(why) => return bad_request(why),
     };
 
-    match crate::db::topics::create_topic(&app.db, &space.host, &slug, &title, &body, &who).await {
+    let told = match crate::mentions::to_tell(&app.db, &space, &who.subject, &body).await {
+        Ok(t) => t,
+        Err(e) => return server_error("cannot look up a mention", &e),
+    };
+    match crate::db::topics::create_topic_mentioning(
+        &app.db,
+        &space.host,
+        &slug,
+        &title,
+        &body,
+        &who,
+        &told,
+    )
+    .await
+    {
         Ok(id) => Redirect::to(&format!("/t/{id}")).into_response(),
         Err(e) => server_error("cannot open a topic", &e),
     }
@@ -966,7 +999,11 @@ async fn reply(
         Err(why) => return bad_request(why),
     };
 
-    match crate::db::topics::add_reply(&app.db, id, &body, &who).await {
+    let told = match crate::mentions::to_tell(&app.db, &space, &who.subject, &body).await {
+        Ok(t) => t,
+        Err(e) => return server_error("cannot look up a mention", &e),
+    };
+    match crate::db::topics::add_reply_mentioning(&app.db, id, &body, &who, &told).await {
         Ok(_) => Redirect::to(&format!("/t/{id}")).into_response(),
         Err(e) => server_error("cannot add a reply", &e),
     }
@@ -995,7 +1032,13 @@ async fn edit_post(
     // The permission is enforced by the query. This handler does not look up
     // the author and compare — it asks for a write that only succeeds if the
     // post is this person's, in this space.
-    match crate::db::topics::update_post(&app.db, &space.host, id, &body, &who).await {
+    let told = match crate::mentions::to_tell(&app.db, &space, &who.subject, &body).await {
+        Ok(t) => t,
+        Err(e) => return server_error("cannot look up a mention", &e),
+    };
+    match crate::db::topics::update_post_mentioning(&app.db, &space.host, id, &body, &who, &told)
+        .await
+    {
         Ok(true) => match topic_of_post(&app, &space.host, id).await {
             Some(topic) => Redirect::to(&format!("/t/{topic}")).into_response(),
             None => Redirect::to("/").into_response(),

@@ -77,6 +77,20 @@ pub async fn create_topic(
     body: &str,
     author: &Identity,
 ) -> anyhow::Result<i64> {
+    create_topic_mentioning(db, space, category, title, body, author, &[]).await
+}
+
+/// `create_topic`, telling `mentioned` (subjects already checked by
+/// `mentions::to_tell`) in the same transaction.
+pub async fn create_topic_mentioning(
+    db: &Db,
+    space: &str,
+    category: &str,
+    title: &str,
+    body: &str,
+    author: &Identity,
+    mentioned: &[String],
+) -> anyhow::Result<i64> {
     let t = now();
     let mut tx = db.pool().begin().await?;
     let id: i64 = sqlx::query(
@@ -116,6 +130,7 @@ pub async fn create_topic(
     // exists while its subscription does not — after a crash, forever, and
     // silently.
     crate::db::subscriptions::follow_in(&mut tx, &author.subject, id).await?;
+    crate::db::inbox::note_mentions_in(&mut tx, space, id, post_id, mentioned).await?;
 
     // EIN NEUES THEMA IST AUCH EIN EREIGNIS. Per Mail geht dabei nichts raus —
     // der einzige Abonnent ist, wer es geschrieben hat —, aber der Betreiber
@@ -134,6 +149,18 @@ pub async fn add_reply(
     topic_id: i64,
     body: &str,
     author: &Identity,
+) -> anyhow::Result<i64> {
+    add_reply_mentioning(db, topic_id, body, author, &[]).await
+}
+
+/// `add_reply`, telling `mentioned` in the same transaction — and BEFORE the
+/// followers, so that a follower who is mentioned keeps the mention.
+pub async fn add_reply_mentioning(
+    db: &Db,
+    topic_id: i64,
+    body: &str,
+    author: &Identity,
+    mentioned: &[String],
 ) -> anyhow::Result<i64> {
     let t = now();
     let mut tx = db.pool().begin().await?;
@@ -168,6 +195,7 @@ pub async fn add_reply(
         .bind(topic_id)
         .fetch_one(&mut *tx)
         .await?;
+    crate::db::inbox::note_mentions_in(&mut tx, &space, topic_id, id, mentioned).await?;
     crate::db::outbox::queue_for_followers(&mut tx, &space, topic_id, id, &author.subject).await?;
     // And the bell, from the same list of followers in the same transaction —
     // so the bell and the mail cannot disagree about who was told.
@@ -251,6 +279,21 @@ pub async fn update_post(
     body: &str,
     author: &Identity,
 ) -> anyhow::Result<bool> {
+    update_post_mentioning(db, space, post_id, body, author, &[]).await
+}
+
+/// `update_post`, telling `mentioned`. Somebody the post already told —
+/// mentioned before, or notified of it as a follower — is not told again:
+/// the inbox's primary key decides, not a comparison of old and new text.
+pub async fn update_post_mentioning(
+    db: &Db,
+    space: &str,
+    post_id: i64,
+    body: &str,
+    author: &Identity,
+    mentioned: &[String],
+) -> anyhow::Result<bool> {
+    let mut tx = db.pool().begin().await?;
     let affected = sqlx::query(
         "UPDATE posts SET body_markdown = ?, updated_at = ?, edited = 1
          WHERE id = ? AND author_subject = ?
@@ -261,10 +304,21 @@ pub async fn update_post(
     .bind(post_id)
     .bind(&author.subject)
     .bind(space)
-    .execute(db.pool())
+    .execute(&mut *tx)
     .await?
     .rows_affected();
-    Ok(affected == 1)
+    if affected != 1 {
+        return Ok(false);
+    }
+    if !mentioned.is_empty() {
+        let topic_id: i64 = sqlx::query_scalar("SELECT topic_id FROM posts WHERE id = ?")
+            .bind(post_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        crate::db::inbox::note_mentions_in(&mut tx, space, topic_id, post_id, mentioned).await?;
+    }
+    tx.commit().await?;
+    Ok(true)
 }
 
 pub async fn delete_post(
