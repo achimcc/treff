@@ -705,7 +705,7 @@ async fn mentionable(
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
     }
-    match crate::mentions::offered(&app.db, &space).await {
+    match crate::mentions::offered(&app.db, &space, &who.subject).await {
         Ok(list) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(list)).into_response(),
         Err(e) => server_error("cannot list who may be mentioned", &e),
     }

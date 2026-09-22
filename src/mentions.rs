@@ -50,11 +50,15 @@ pub struct Offer {
 /// `to_tell` and `highlighted`, asked of every account with a handle. A list
 /// that showed more would say who exists, which the mention itself is careful
 /// never to do.
-pub async fn offered(db: &Db, space: &Space) -> anyhow::Result<Vec<Offer>> {
+///
+/// `except` is whoever asks: mentioning yourself does nothing, so offering
+/// yourself is noise — and on the evening this went live it was the only name
+/// the list had.
+pub async fn offered(db: &Db, space: &Space, except: &str) -> anyhow::Result<Vec<Offer>> {
     let mut out: Vec<Offer> = crate::db::accounts::with_handles(db)
         .await?
         .into_iter()
-        .filter(|(_, known)| may_read(known, space))
+        .filter(|(_, known)| known.subject != except && may_read(known, space))
         .map(|(name, known)| Offer {
             name,
             handle: known.handle,

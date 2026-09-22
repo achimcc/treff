@@ -459,10 +459,11 @@ async fn the_suggestions_are_the_readers_of_the_space_and_nobody_else() {
     assert_eq!(
         list,
         serde_json::json!([
-            { "name": "ada the tester", "handle": "ada" },
             { "name": "Ben the tester", "handle": "ben" },
         ]),
-        "sorted by name, case-insensitive; eve and the account without a handle are absent"
+        "eve and the account without a handle are absent — and so is ada, who asks: \
+         mentioning yourself does nothing, and the list offered her only herself \
+         on the evening mentions went live"
     );
     assert!(!body.contains("example.org"), "no address: {body}");
 }
