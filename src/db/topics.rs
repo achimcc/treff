@@ -468,6 +468,7 @@ mod tests {
             name: name.into(),
             groups: vec![],
             email: None,
+            handle: None,
         }
     }
 

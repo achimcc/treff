@@ -96,6 +96,7 @@ mod tests {
             name: subject.into(),
             groups: vec!["Household".into()],
             email: Some(format!("{subject}@example.org")),
+            handle: None,
         }
     }
 

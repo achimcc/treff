@@ -86,12 +86,14 @@ async fn a_reply_reaches_the_mail_server() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: Some("ada@example.org".into()),
+        handle: None,
     };
     let ben = treff::authz::Identity {
         subject: "ben".into(),
         name: "Ben".into(),
         groups: vec!["Household".into()],
         email: Some("ben@example.org".into()),
+        handle: None,
     };
     // The account rows are what the sender looks the address up in — the
     // session they arrived with is long gone by the time mail goes out.
@@ -195,12 +197,14 @@ async fn the_unsubscribe_link_works_without_signing_in() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: Some("ada@example.org".into()),
+        handle: None,
     };
     let ben = treff::authz::Identity {
         subject: "ben".into(),
         name: "Ben".into(),
         groups: vec!["Household".into()],
         email: Some("ben@example.org".into()),
+        handle: None,
     };
     let topic =
         treff::db::topics::create_topic(&db, "forum.example.org", "general", "T", "B", &ada)
@@ -334,12 +338,14 @@ async fn a_reply_reaches_the_webhook_once() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let ben = treff::authz::Identity {
         subject: "ben".into(),
         name: "Ben".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,

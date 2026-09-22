@@ -40,6 +40,7 @@ fn who(subject: &str) -> treff::authz::Identity {
         name: format!("{subject} the tester"),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     }
 }
 
@@ -261,6 +262,7 @@ async fn nobody_can_edit_a_mirrored_article_through_the_web() {
         name: "treff".into(),
         groups: vec![],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,

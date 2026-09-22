@@ -165,6 +165,9 @@ pub async fn signed_in(
         name: format!("{subject} the tester"),
         groups: groups.iter().map(|g| (*g).to_string()).collect(),
         email: None,
+        // Every test person answers to their subject, so a test can mention
+        // them without setting anything up.
+        handle: Some(subject.into()),
     };
     let sid = treff::auth::Sessions::create(db, &identity)
         .await

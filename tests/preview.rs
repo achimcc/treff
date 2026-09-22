@@ -83,12 +83,14 @@ async fn render_the_pages_for_a_look() {
         name: "ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let ben = treff::authz::Identity {
         subject: "s2".into(),
         name: "ben".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
 
     let t1 = treff::db::topics::create_topic(

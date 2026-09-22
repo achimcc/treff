@@ -30,6 +30,7 @@ fn author() -> treff::authz::Identity {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     }
 }
 

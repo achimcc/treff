@@ -117,6 +117,7 @@ async fn replying_follows_reply_and_not_post() {
         name: "treff".into(),
         groups: vec![],
         email: None,
+        handle: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -152,6 +153,7 @@ async fn a_reply_from_someone_who_may_not_read_is_refused() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -187,6 +189,7 @@ async fn a_reply_to_a_topic_in_another_space_is_not_found() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -317,6 +320,7 @@ async fn following_and_unfollowing_go_through_the_page() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,
@@ -421,6 +425,7 @@ async fn replying_and_attaching_a_picture_open_together() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,

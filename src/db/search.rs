@@ -147,6 +147,7 @@ mod tests {
             name: "Ada".into(),
             groups: vec!["Household".into()],
             email: None,
+            handle: None,
         }
     }
 

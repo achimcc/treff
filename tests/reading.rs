@@ -63,6 +63,7 @@ async fn a_timeline_shows_the_posts_themselves() {
         name: "Ada".into(),
         groups: vec!["Writers".into()],
         email: None,
+        handle: None,
     };
     treff::db::topics::create_topic(
         &db,
@@ -98,6 +99,7 @@ async fn a_topic_list_shows_titles_and_not_bodies() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     treff::db::topics::create_topic(
         &db,
@@ -147,6 +149,7 @@ async fn a_topic_from_another_space_is_not_found() {
         name: "Ada".into(),
         groups: vec!["Writers".into()],
         email: None,
+        handle: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -180,6 +183,7 @@ async fn a_topic_page_shows_its_posts_in_order() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -229,6 +233,7 @@ async fn no_page_carries_a_script_element() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let id = treff::db::topics::create_topic(
         &db,
@@ -283,6 +288,7 @@ async fn a_search_finds_only_what_this_address_holds() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     treff::db::topics::create_topic(
         &db,
@@ -341,12 +347,14 @@ async fn a_topic_list_shows_the_opener_and_the_last_reply_side_by_side() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let answerer = treff::authz::Identity {
         subject: "s2".into(),
         name: "Bob".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,
@@ -407,6 +415,7 @@ async fn a_topic_nobody_answered_has_nothing_in_the_reply_column() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,
@@ -450,6 +459,7 @@ async fn a_post_carries_the_hour_and_not_only_the_day() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,
@@ -488,6 +498,7 @@ async fn a_topic_page_leads_back_to_its_category() {
         name: "Ada".into(),
         groups: vec!["Household".into()],
         email: None,
+        handle: None,
     };
     let topic = treff::db::topics::create_topic(
         &db,

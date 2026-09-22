@@ -17,6 +17,11 @@ pub struct Identity {
     /// providers people can edit it themselves — matching on one would hand an
     /// account to whoever claims the address next.
     pub email: Option<String>,
+    /// What others type after an `@` to mention this person: the provider's
+    /// `preferred_username`, checked and lower-cased. **Optional, and not an
+    /// identity either** — it is how to *address* somebody in a post, and a
+    /// person without one simply cannot be mentioned.
+    pub handle: Option<String>,
 }
 
 impl Identity {
@@ -57,6 +62,7 @@ mod tests {
             name: "Someone".into(),
             groups: groups.iter().map(|g| (*g).to_string()).collect(),
             email: None,
+            handle: None,
         }
     }
 
@@ -167,6 +173,7 @@ mod tests {
             name: "A Different Name".into(),
             groups: vec![],
             email: None,
+            handle: None,
         };
         assert!(may_modify(&renamed, "sub-1"));
 
@@ -175,6 +182,7 @@ mod tests {
             name: "Someone".into(),
             groups: vec![],
             email: None,
+            handle: None,
         };
         assert!(!may_modify(&namesake, "sub-1"));
     }

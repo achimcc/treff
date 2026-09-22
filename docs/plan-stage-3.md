@@ -11,7 +11,7 @@ stage is called done.
 
 | | |
 |---|---|
-| Open | **Task 1** — a handle and the groups on the account |
+| Done | **Task 1** — a handle and the groups on the account |
 | Open | **Task 2** — the inbox, filled by replies |
 | Open | **Task 3** — the bell and `/notifications` |
 | Open | **Task 4** — `@handle`: found, checked, noted, highlighted |
@@ -25,23 +25,23 @@ stage is called done.
 `src/auth/mod.rs`, `src/auth/oidc.rs`, every `Identity { … }` literal,
 `tests/common/mod.rs`
 
-- [ ] `Identity` gains `handle: Option<String>`.
-- [ ] `claims_to_identity` reads `preferred_username`: trimmed,
+- [x] `Identity` gains `handle: Option<String>`.
+- [x] `claims_to_identity` reads `preferred_username`: trimmed,
       lower-cased, kept only if it matches `^[a-z0-9._-]{1,64}$`. Anything
       else — missing, not a string, too long, a space in it — is `None`, never
       a repaired guess. Unit tests for each of those.
-- [ ] `finish_login` hands the verified payload's `preferred_username` through
+- [x] `finish_login` hands the verified payload's `preferred_username` through
       that function (it already reads the claim for the name fallback; the
       payload `extra` carries it).
-- [ ] Migration: `accounts` gains `handle TEXT`, `groups_json TEXT NOT NULL
+- [x] Migration: `accounts` gains `handle TEXT`, `groups_json TEXT NOT NULL
       DEFAULT '[]'`, `mention_mail INTEGER NOT NULL DEFAULT 1`, and a unique
       index on `handle` where it is not null.
-- [ ] `Sessions::create` writes handle and groups on every sign-in. A handle
+- [x] `Sessions::create` writes handle and groups on every sign-in. A handle
       that another account already holds is written as `NULL` for the
       newcomer rather than failing the sign-in — a sign-in must not break over
       a nickname, and two people answering to one handle would hand one of
       them the other's mentions. Test: two subjects, one handle.
-- [ ] `tests/common::signed_in` gives every test person the handle
+- [x] `tests/common::signed_in` gives every test person the handle
       `<subject>`, so later tests can mention them by it.
 
 **Done when** a sign-in stores handle and groups on the account row, and the

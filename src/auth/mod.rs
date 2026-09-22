@@ -89,12 +89,33 @@ pub fn claims_to_identity(
         .filter(|e| !e.is_empty())
         .map(String::from);
 
+    let handle = claims
+        .get("preferred_username")
+        .and_then(|v| v.as_str())
+        .and_then(checked_handle);
+
     Identity {
         subject: subject.to_string(),
         name: name.unwrap_or(subject).to_string(),
         groups,
         email,
+        handle,
     }
+}
+
+/// A handle as treff accepts it, or none at all.
+///
+/// Trimmed and lower-cased, then either it is `[a-z0-9._-]{1,64}` or it is
+/// nothing — never a repaired version of itself. A handle is matched against
+/// what people type after an `@`, and one that had been "fixed" on the way in
+/// would be matched by something its owner never chose.
+pub fn checked_handle(raw: &str) -> Option<String> {
+    let h = raw.trim().to_lowercase();
+    let fits = !h.is_empty()
+        && h.len() <= 64
+        && h.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b));
+    fits.then_some(h)
 }
 
 pub struct Sessions;
@@ -119,16 +140,31 @@ impl Sessions {
         // after twelve hours; a subscription does not. Keeping the address
         // only on the session would mean notifying whoever happens to be
         // logged in, which is the opposite of what a notification is for.
+        //
+        // THE HANDLE ONLY IF NOBODY ELSE HOLDS IT. The subquery sees the
+        // account table as it is before this row, so the person who already
+        // has the handle keeps it on every later sign-in, and a newcomer with
+        // the same `preferred_username` gets none — a sign-in must not fail
+        // over a nickname.
+        let groups = serde_json::to_string(&who.groups)?;
         sqlx::query(
-            "INSERT INTO accounts (subject, name, email, seen_at) VALUES (?, ?, ?, ?)
+            "INSERT INTO accounts (subject, name, email, seen_at, handle, groups_json)
+             VALUES (?1, ?2, ?3, ?4,
+                     (SELECT ?5 WHERE NOT EXISTS
+                        (SELECT 1 FROM accounts WHERE handle = ?5 AND subject <> ?1)),
+                     ?6)
              ON CONFLICT(subject) DO UPDATE SET name = excluded.name,
                                                 email = excluded.email,
-                                                seen_at = excluded.seen_at",
+                                                seen_at = excluded.seen_at,
+                                                handle = excluded.handle,
+                                                groups_json = excluded.groups_json",
         )
         .bind(&who.subject)
         .bind(&who.name)
         .bind(&who.email)
         .bind(now)
+        .bind(&who.handle)
+        .bind(&groups)
         .execute(db.pool())
         .await?;
 
@@ -139,7 +175,7 @@ impl Sessions {
         .bind(&id)
         .bind(&who.subject)
         .bind(&who.name)
-        .bind(serde_json::to_string(&who.groups)?)
+        .bind(&groups)
         .bind(&who.email)
         .bind(now)
         .bind(now + SESSION_SECONDS)
@@ -153,11 +189,18 @@ impl Sessions {
     pub async fn load(db: &Db, id: &str) -> anyhow::Result<Option<Identity>> {
         use sqlx::Row;
         let now = crate::db::topics::now();
-        let Some(row) = sqlx::query("SELECT * FROM sessions WHERE id = ? AND expires_at > ?")
-            .bind(id)
-            .bind(now)
-            .fetch_optional(db.pool())
-            .await?
+        // The handle lives on the account, not on the session: it is the one
+        // the account row settled on, which is not always the one the token
+        // asked for (see `create`).
+        let Some(row) = sqlx::query(
+            "SELECT s.*, a.handle AS handle FROM sessions s
+               LEFT JOIN accounts a ON a.subject = s.subject
+              WHERE s.id = ? AND s.expires_at > ?",
+        )
+        .bind(id)
+        .bind(now)
+        .fetch_optional(db.pool())
+        .await?
         else {
             return Ok(None);
         };
@@ -168,6 +211,7 @@ impl Sessions {
             // storage.
             groups: serde_json::from_str(&row.get::<String, _>("groups_json")).unwrap_or_default(),
             email: row.get("email"),
+            handle: row.get("handle"),
         }))
     }
 
@@ -223,6 +267,26 @@ mod tests {
         // A claim that is not a string is not an address.
         let wrong = claims_to_identity("s", None, &json!({ "email": 42 }), "groups");
         assert_eq!(wrong.email, None);
+    }
+
+    /// THE HANDLE IS TAKEN AS IT IS OR NOT AT ALL. It is what an `@` in a
+    /// post is matched against, so a value that had been repaired on the way
+    /// in would answer to something its owner never chose.
+    #[test]
+    fn a_handle_is_the_preferred_username_checked_and_lower_cased() {
+        let h = |v: serde_json::Value| {
+            claims_to_identity("s", None, &json!({ "preferred_username": v }), "groups").handle
+        };
+        assert_eq!(h(json!("Konrad")).as_deref(), Some("konrad"));
+        assert_eq!(h(json!(" ada.l-9_ ")).as_deref(), Some("ada.l-9_"));
+        assert_eq!(h(json!("Konrad Müller")), None, "a space is not repaired");
+        assert_eq!(h(json!("jürgen")), None, "nor is a letter outside ASCII");
+        assert_eq!(h(json!("")), None);
+        assert_eq!(h(json!("x".repeat(65))), None, "too long");
+        assert_eq!(h(json!("x".repeat(64))).map(|s| s.len()), Some(64));
+        assert_eq!(h(json!(42)), None, "not a string, not a handle");
+        let none = claims_to_identity("s", None, &json!({}), "groups");
+        assert_eq!(none.handle, None, "no claim, no handle, no complaint");
     }
 
     #[test]
@@ -281,6 +345,7 @@ mod tests {
             name: "Ada".into(),
             groups: vec!["Household".into()],
             email: Some("ada@example.org".into()),
+            handle: None,
         };
         let id = Sessions::create(&db, &ada).await.expect("session");
         Sessions::destroy(&db, &id).await.expect("sign out");
@@ -311,6 +376,7 @@ mod tests {
             name: "Ada".into(),
             groups: vec![],
             email: Some("old@example.org".into()),
+            handle: None,
         };
         Sessions::create(&db, &ada).await.expect("session");
         ada.email = Some("new@example.org".into());
@@ -326,6 +392,70 @@ mod tests {
         );
     }
 
+    /// A SIGN-IN LEAVES HANDLE AND GROUPS ON THE ACCOUNT, because a mention
+    /// reaches somebody who is not signed in: whether they may read the space
+    /// has to be answerable from the account row, not from a session that
+    /// ended on Tuesday.
+    #[tokio::test]
+    async fn the_account_keeps_handle_and_groups_of_the_last_sign_in() {
+        use sqlx::Row;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = crate::db::Db::open(&dir.path().join("t.db"))
+            .await
+            .expect("open");
+        let mut ada = Identity {
+            subject: "s1".into(),
+            name: "Ada".into(),
+            groups: vec!["Household".into()],
+            email: None,
+            handle: Some("ada".into()),
+        };
+        Sessions::create(&db, &ada).await.expect("session");
+        ada.groups = vec!["Friends".into()];
+        Sessions::create(&db, &ada).await.expect("session");
+
+        let row = sqlx::query("SELECT handle, groups_json FROM accounts WHERE subject = 's1'")
+            .fetch_one(db.pool())
+            .await
+            .expect("row");
+        assert_eq!(
+            row.get::<Option<String>, _>("handle").as_deref(),
+            Some("ada")
+        );
+        assert_eq!(row.get::<String, _>("groups_json"), r#"["Friends"]"#);
+    }
+
+    /// TWO PEOPLE, ONE HANDLE: the newcomer gets none, and the sign-in still
+    /// works. Failing the sign-in over a nickname would lock somebody out;
+    /// handing out the handle twice would give one of them the other's
+    /// mentions.
+    #[tokio::test]
+    async fn a_handle_that_is_taken_is_not_taken_twice() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = crate::db::Db::open(&dir.path().join("t.db"))
+            .await
+            .expect("open");
+        let who = |subject: &str| Identity {
+            subject: subject.into(),
+            name: subject.into(),
+            groups: vec![],
+            email: None,
+            handle: Some("konrad".into()),
+        };
+        Sessions::create(&db, &who("first")).await.expect("first");
+        Sessions::create(&db, &who("second"))
+            .await
+            .expect("a taken handle does not fail a sign-in");
+        Sessions::create(&db, &who("first")).await.expect("again");
+
+        let holders: Vec<String> =
+            sqlx::query_scalar("SELECT subject FROM accounts WHERE handle = 'konrad'")
+                .fetch_all(db.pool())
+                .await
+                .expect("query");
+        assert_eq!(holders, vec!["first".to_string()]);
+    }
+
     /// Storing an address is not the point — carrying it back out is.
     #[tokio::test]
     async fn a_session_carries_the_address_back_out_and_survives_without_one() {
@@ -339,6 +469,7 @@ mod tests {
             name: "Ada".into(),
             groups: vec!["Household".into()],
             email: Some("ada@example.org".into()),
+            handle: None,
         };
         let id = Sessions::create(&db, &with).await.expect("session");
         let back = Sessions::load(&db, &id).await.expect("load").expect("some");
@@ -349,6 +480,7 @@ mod tests {
             name: "Ben".into(),
             groups: vec!["Household".into()],
             email: None,
+            handle: None,
         };
         let id2 = Sessions::create(&db, &without).await.expect("session");
         let back2 = Sessions::load(&db, &id2)
@@ -367,6 +499,7 @@ mod tests {
             name: "N".into(),
             groups: vec!["Household".into()],
             email: None,
+            handle: None,
         };
 
         let sid = Sessions::create(&db, &who).await.expect("create");
@@ -391,6 +524,7 @@ mod tests {
             name: "N".into(),
             groups: vec![],
             email: None,
+            handle: None,
         };
         let mut seen = std::collections::HashSet::new();
         for _ in 0..50 {
