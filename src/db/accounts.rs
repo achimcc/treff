@@ -88,6 +88,30 @@ pub async fn set_mention_mail(db: &Db, subject: &str, on: bool) -> anyhow::Resul
     Ok(())
 }
 
+/// Every account that has a handle, with its name — the raw material of the
+/// suggestion list. Never shown as it is: `mentions::offered` filters it.
+pub async fn with_handles(db: &Db) -> anyhow::Result<Vec<(String, Known)>> {
+    let rows = sqlx::query(
+        "SELECT subject, name, handle, groups_json FROM accounts WHERE handle IS NOT NULL",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            (
+                r.get("name"),
+                Known {
+                    subject: r.get("subject"),
+                    handle: r.get("handle"),
+                    groups: serde_json::from_str(&r.get::<String, _>("groups_json"))
+                        .unwrap_or_default(),
+                },
+            )
+        })
+        .collect())
+}
+
 /// Subject → handle, for putting the handle next to a name.
 pub async fn handles_of(db: &Db, subjects: &[String]) -> anyhow::Result<HashMap<String, String>> {
     if subjects.is_empty() {

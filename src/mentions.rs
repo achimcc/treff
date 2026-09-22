@@ -22,17 +22,51 @@ async fn readers(
     Ok(crate::db::accounts::by_handles(db, handles)
         .await?
         .into_iter()
-        .filter(|known| {
-            let as_they_were = Identity {
-                subject: known.subject.clone(),
-                name: String::new(),
-                groups: known.groups.clone(),
-                email: None,
-                handle: Some(known.handle.clone()),
-            };
-            crate::authz::may_read(&as_they_were, space)
-        })
+        .filter(|known| may_read(known, space))
         .collect())
+}
+
+/// THE rule, once: may this account, as it signed in last, read the space?
+fn may_read(known: &crate::db::accounts::Known, space: &Space) -> bool {
+    let as_they_were = Identity {
+        subject: known.subject.clone(),
+        name: String::new(),
+        groups: known.groups.clone(),
+        email: None,
+        handle: Some(known.handle.clone()),
+    };
+    crate::authz::may_read(&as_they_were, space)
+}
+
+/// One line of the suggestion list: what the overlay shows, and what it
+/// writes. Nothing else leaves the server — no subject, no address.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Offer {
+    pub name: String,
+    pub handle: String,
+}
+
+/// Everybody who could be mentioned in this space, by name: the same rule as
+/// `to_tell` and `highlighted`, asked of every account with a handle. A list
+/// that showed more would say who exists, which the mention itself is careful
+/// never to do.
+pub async fn offered(db: &Db, space: &Space) -> anyhow::Result<Vec<Offer>> {
+    let mut out: Vec<Offer> = crate::db::accounts::with_handles(db)
+        .await?
+        .into_iter()
+        .filter(|(_, known)| may_read(known, space))
+        .map(|(name, known)| Offer {
+            name,
+            handle: known.handle,
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.handle.cmp(&b.handle))
+    });
+    Ok(out)
 }
 
 /// The subjects to tell about a post: mentioned, readers of the space, and

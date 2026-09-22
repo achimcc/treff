@@ -693,6 +693,22 @@ async fn notifications(
         .into_response()
 }
 
+/// The suggestion list for `mention.js` (ADR 0005). Per person and per
+/// space, so nothing may keep it.
+async fn mentionable(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    match crate::mentions::offered(&app.db, &space).await {
+        Ok(list) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(list)).into_response(),
+        Err(e) => server_error("cannot list who may be mentioned", &e),
+    }
+}
+
 #[derive(serde::Deserialize)]
 pub struct MentionMail {
     on: String,
@@ -1359,6 +1375,7 @@ pub fn router(state: AppState) -> Router {
         .route("/search", get(search_page))
         .route("/notifications", get(notifications))
         .route("/notifications/read", axum::routing::post(read_all))
+        .route("/mentionable", get(mentionable))
         .route(
             "/notifications/mention-mail",
             axum::routing::post(set_mention_mail),

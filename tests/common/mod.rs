@@ -167,7 +167,8 @@ pub async fn signed_in(
         email: None,
         // Every test person answers to their subject, so a test can mention
         // them without setting anything up.
-        handle: Some(subject.into()),
+        // Through the same check a sign-in uses, so `Ben` answers to `ben`.
+        handle: treff::auth::checked_handle(subject),
     };
     let sid = treff::auth::Sessions::create(db, &identity)
         .await

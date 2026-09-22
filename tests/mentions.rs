@@ -403,3 +403,79 @@ async fn mention_mails_can_be_switched_back_on() {
     assert_eq!(send(&app, set("1")).await.status(), StatusCode::SEE_OTHER);
     assert_eq!(flag().await, 1);
 }
+
+// --- Who may be offered (stage 4, task 1) -----------------------------------
+
+async fn offered(app: &axum::Router, host: &str, cookie: &str) -> axum::response::Response {
+    let request = Request::builder()
+        .uri("/mentionable")
+        .header("host", host)
+        .header("cookie", cookie)
+        .body(Body::empty())
+        .expect("request");
+    send(app, request).await
+}
+
+/// THE LIST IS THE MENTION'S RULE, NOT THE ACCOUNT TABLE. Showing everybody
+/// with an account would say exactly what a mention is careful not to: who
+/// exists. So: readers of this space, with a handle — and only name and
+/// handle.
+#[tokio::test]
+async fn the_suggestions_are_the_readers_of_the_space_and_nobody_else() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    signed_in(&db, dir.path(), "Ben", &["Friends"]).await;
+    signed_in(&db, dir.path(), "eve", &["Neighbours"]).await;
+    // An account without a handle cannot be mentioned, so it is not offered.
+    treff::auth::Sessions::create(
+        &db,
+        &treff::authz::Identity {
+            subject: "nohandle".into(),
+            name: "No Handle".into(),
+            groups: vec!["Household".into()],
+            email: Some("secret@example.org".into()),
+            handle: None,
+        },
+    )
+    .await
+    .expect("account");
+
+    let response = offered(&app, FORUM, &ada).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()["content-type"].to_str().expect("ascii"),
+        "application/json"
+    );
+    assert_eq!(
+        response.headers()["cache-control"].to_str().expect("ascii"),
+        "no-store"
+    );
+    let body = body_of(response).await;
+    let list: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(
+        list,
+        serde_json::json!([
+            { "name": "ada the tester", "handle": "ada" },
+            { "name": "Ben the tester", "handle": "ben" },
+        ]),
+        "sorted by name, case-insensitive; eve and the account without a handle are absent"
+    );
+    assert!(!body.contains("example.org"), "no address: {body}");
+}
+
+#[tokio::test]
+async fn somebody_who_may_not_read_the_space_gets_no_list() {
+    let (dir, db, app) = setup_with_db().await;
+    let eve = signed_in(&db, dir.path(), "eve", &["Neighbours"]).await;
+    assert_eq!(
+        offered(&app, FORUM, &eve).await.status(),
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn without_a_session_there_is_no_list() {
+    let (_dir, _db, app) = setup_with_db().await;
+    let response = offered(&app, FORUM, "").await;
+    assert_ne!(response.status(), StatusCode::OK);
+}
