@@ -575,7 +575,9 @@ async fn search_page(
 
     match crate::db::search::search(&app.db, &space.host, &categories, &query.q, PAGE_SIZE).await {
         Ok(hits) => {
-            crate::web::views::search_page(&space, &who, lang, &query.q, &hits).into_response()
+            let bell = bell(&app, &space, &who).await;
+            crate::web::views::search_page(&space, &who, lang, bell, &query.q, &hits)
+                .into_response()
         }
         Err(e) => server_error("cannot search", &e),
     }
@@ -631,6 +633,57 @@ async fn unsubscribe_now(
         Err(e) => return server_error("cannot look up a notification", &e),
     }
     crate::web::views::unsubscribed_page(&space, lang).into_response()
+}
+
+/// The number on the bell for this person in this space.
+///
+/// A count that cannot be read is logged and shown as no number rather than
+/// failing the page: the page is what the person came for, and the bell is a
+/// hint about other pages. The list behind it fails loudly on its own.
+async fn bell(app: &AppState, space: &Space, who: &Identity) -> crate::web::views::Bell {
+    match crate::db::inbox::unread_count(&app.db, &who.subject, &space.host).await {
+        Ok(unread) => crate::web::views::Bell { unread },
+        Err(e) => {
+            tracing_error("cannot count unread notifications", &e);
+            crate::web::views::Bell::default()
+        }
+    }
+}
+
+/// How many lines the notifications page shows. Enough for a week away; a
+/// list longer than that is not read, it is scrolled past.
+const INBOX_PAGE: i64 = 50;
+
+async fn notifications(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    lang: crate::i18n::Lang,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    let entries =
+        match crate::db::inbox::entries(&app.db, &who.subject, &space.host, INBOX_PAGE).await {
+            Ok(e) => e,
+            Err(e) => return server_error("cannot list notifications", &e),
+        };
+    let bell = bell(&app, &space, &who).await;
+    crate::web::views::notifications_page(&space, &who, lang, bell, &entries).into_response()
+}
+
+async fn read_all(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    match crate::db::inbox::mark_all_read(&app.db, &who.subject, &space.host).await {
+        Ok(()) => Redirect::to("/notifications").into_response(),
+        Err(e) => server_error("cannot mark notifications read", &e),
+    }
 }
 
 fn tracing_error(what: &str, e: &anyhow::Error) {
@@ -706,7 +759,8 @@ async fn space_index(
                 .iter()
                 .map(|c| (c, counts.get(&c.slug).cloned().unwrap_or_default()))
                 .collect();
-            crate::web::views::category_index(&space, &who, lang, &rows).into_response()
+            let bell = bell(&app, &space, &who).await;
+            crate::web::views::category_index(&space, &who, lang, bell, &rows).into_response()
         }
     }
 }
@@ -757,7 +811,9 @@ async fn render_space(
         rows.push(crate::web::views::TopicRow { topic, last, first });
     }
 
-    crate::web::views::space_page(space, who, lang, space.category(slug), &rows).into_response()
+    let bell = bell(app, space, who).await;
+    crate::web::views::space_page(space, who, lang, bell, space.category(slug), &rows)
+        .into_response()
 }
 
 async fn topic_page(
@@ -781,9 +837,22 @@ async fn topic_page(
                     Ok(f) => f,
                     Err(e) => return server_error("cannot read a subscription", &e),
                 };
+            // READ FIRST, COUNT SECOND: this page is where the entries of this
+            // topic end, and a bell on it that still counted them would be
+            // wrong on the one page where the reader can check.
+            if let Err(e) = crate::db::inbox::mark_topic_read(&app.db, &who.subject, topic.id).await
+            {
+                tracing_error("cannot mark a topic read", &e);
+            }
+            let bell = bell(&app, &space, &who).await;
             let category = space.category(&topic.category);
-            crate::web::views::topic_page(&space, &who, lang, category, &topic, &posts, following)
-                .into_response()
+            let view = crate::web::views::TopicView {
+                category,
+                topic: &topic,
+                posts: &posts,
+                following,
+            };
+            crate::web::views::topic_page(&space, &who, lang, bell, view).into_response()
         }
         Err(e) => server_error("cannot load a topic", &e),
     }
@@ -961,7 +1030,8 @@ async fn delete_question(
     if !crate::authz::may_modify(&who, &post.author_subject) {
         return forbidden();
     }
-    crate::web::views::delete_question_page(&space, &who, lang, &post).into_response()
+    let bell = bell(&app, &space, &who).await;
+    crate::web::views::delete_question_page(&space, &who, lang, bell, &post).into_response()
 }
 
 async fn delete_post(
@@ -1195,6 +1265,8 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(space_index))
         .route("/c/{slug}", get(space_category))
         .route("/search", get(search_page))
+        .route("/notifications", get(notifications))
+        .route("/notifications/read", axum::routing::post(read_all))
         .route("/t/{id}", get(topic_page))
         .route("/c/{slug}/new", axum::routing::post(open_topic))
         .route("/t/{id}/reply", axum::routing::post(reply))

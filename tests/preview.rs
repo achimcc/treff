@@ -132,7 +132,7 @@ async fn render_the_pages_for_a_look() {
     )
     .await
     .expect("t2");
-    treff::db::topics::create_topic(
+    let t3 = treff::db::topics::create_topic(
         &db,
         "forum.example.org",
         "offtopic",
@@ -142,6 +142,13 @@ async fn render_the_pages_for_a_look() {
     )
     .await
     .expect("t3");
+    // Two answers from somebody else, so the reader's bell has a bundle of
+    // more than one to show next to the bundle of one in the first topic.
+    for text in ["Finally.", "Which descaler did you use?"] {
+        treff::db::topics::add_reply(&db, t3, text, &ben)
+            .await
+            .expect("reply to t3");
+    }
 
     treff::db::topics::create_topic(
         &db,
@@ -173,6 +180,9 @@ async fn render_the_pages_for_a_look() {
     std::fs::create_dir_all(&out).expect("dir");
     for (name, host, uri) in [
         ("forum", "forum.example.org", "/"),
+        // Before the topic page, which reads its own entries: afterwards
+        // there would be one bundle less to look at.
+        ("benachrichtigungen", "forum.example.org", "/notifications"),
         ("blog", "blog.example.org", "/"),
         ("thema", "forum.example.org", "/t/1"),
         ("kategorie", "forum.example.org", "/c/general"),
@@ -182,6 +192,12 @@ async fn render_the_pages_for_a_look() {
         // which is a list row with a third line under it.
         ("loeschen", "forum.example.org", "/p/1/delete"),
         ("suche", "forum.example.org", "/search?q=projector"),
+        // And the list once more, with one bundle read and one not.
+        (
+            "benachrichtigungen-gelesen",
+            "forum.example.org",
+            "/notifications",
+        ),
     ] {
         let html = body_of(
             app.clone()

@@ -141,10 +141,15 @@ header .home {
     .cursor { animation: none; }
 }
 
+/* `wrap`, because a phone is narrower than search box, way up, bell, name
+   and sign-out side by side — without it the header pushed the page into a
+   sideways scroll (seen in the preview at 390px, before the bell and more so
+   after it). */
 header nav {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: 1rem;
+    gap: .6rem 1rem;
     font-family: var(--mono);
     font-size: 12.5px;
 }
@@ -186,7 +191,7 @@ header nav .up:hover { color: var(--on); }
     line-height: 1.5;
 }
 
-header nav .who { color: var(--quiet); }
+header nav .who { color: var(--quiet); white-space: nowrap; }
 header nav .who::before { content: "@"; color: var(--murmur); }
 
 /* Abmelden ist ein Formular (es aendert etwas), soll aber aussehen wie das,
@@ -754,3 +759,35 @@ footer {
 }
 
 footer p { margin: 0; }
+
+/* --- The bell ---------------------------------------------------------- */
+
+/* Quiet until there is something: the icon in the second voice, the number
+   in the signal colour — the one place in the header that is allowed to
+   draw the eye, and only while it has a reason to. */
+header nav .bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    align-self: center;
+    color: var(--quiet);
+    text-decoration: none;
+}
+
+header nav .bell:hover { color: var(--on); }
+
+.bell .unread {
+    font: 600 11px/1 var(--mono);
+    padding: .15rem .35rem;
+    border-radius: 3px;
+    background: hsl(150 70% 45% / .16);
+    color: var(--on);
+}
+
+/* What is new stands in the first voice, what was seen steps back to the
+   second. Same list as the topic index, so it reads like one. */
+.inbox li.seen a { color: var(--quiet); }
+.inbox li.new a::before { content: "* "; color: var(--on); }
+.inbox b { font-weight: 600; }
+.read-all { margin: -.5rem 0 1rem; }

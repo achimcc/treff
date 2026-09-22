@@ -14,8 +14,24 @@ use maud::{DOCTYPE, Markup, PreEscaped, html};
 /// `style-src 'self'` in the CSP stays true.
 pub const STYLESHEET: &str = include_str!("style.css");
 
-pub fn layout(space: &Space, who: &Identity, lang: Lang, title: &str, body: Markup) -> Markup {
-    layout_with_search(space, who, lang, title, "", body)
+/// What the header needs to know about the person looking, beyond who they
+/// are: how many things wait for them. Counted by the handler AFTER it has
+/// changed anything — a topic page reads its own entries first, so the bell
+/// on it does not count the bundle it just cleared.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Bell {
+    pub unread: i64,
+}
+
+pub fn layout(
+    space: &Space,
+    who: &Identity,
+    lang: Lang,
+    bell: Bell,
+    title: &str,
+    body: Markup,
+) -> Markup {
+    layout_with_search(space, who, lang, bell, title, "", body)
 }
 
 /// The same layout, with whatever was searched for left standing in the field.
@@ -24,6 +40,7 @@ pub fn layout_with_search(
     space: &Space,
     who: &Identity,
     lang: Lang,
+    bell: Bell,
     title: &str,
     find: &str,
     body: Markup,
@@ -68,6 +85,17 @@ pub fn layout_with_search(
                                 // fuehrt. Das `../` davor setzt das Stylesheet.
                                 a class="up" href=(home) { (host_of(home)) }
                             }
+                            // A LINK, not a menu: the page has no script, and
+                            // the list behind it is a page of its own. The
+                            // number only when there is one — a bell that
+                            // always says 0 is one people stop looking at.
+                            a class="bell" href="/notifications"
+                              aria-label=(bell_label(lang, bell)) title=(bell_label(lang, bell)) {
+                                (icon_bell())
+                                @if bell.unread > 0 {
+                                    span class="unread" { (bell.unread) }
+                                }
+                            }
                             span class="who" { (who.name) }
                             // Ein Formular und kein Link: Abmelden AENDERT
                             // etwas, und was ein Link tut, tut auch jeder,
@@ -88,6 +116,34 @@ pub fn layout_with_search(
                     p { (lang.t("footer_note")) }
                 }
             }
+        }
+    }
+}
+
+/// What the bell says to somebody who cannot see it.
+fn bell_label(lang: Lang, bell: Bell) -> String {
+    if bell.unread > 0 {
+        format!(
+            "{}: {} {}",
+            lang.t("notifications"),
+            bell.unread,
+            lang.t("unread")
+        )
+    } else {
+        lang.t("notifications").to_string()
+    }
+}
+
+/// The bell, drawn like the pencil and the basket: an inline SVG in
+/// `currentColor`, because a glyph would be whatever the reader's font makes
+/// of it.
+fn icon_bell() -> Markup {
+    html! {
+        svg class="icon" viewBox="0 0 16 16" width="15" height="15"
+            aria-hidden="true" focusable="false" {
+            path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.3 1.3H2.7zM6.6 13.8a1.5 1.5 0 0 0 2.8 0"
+                 fill="none" stroke="currentColor" stroke-width="1.3"
+                 stroke-linecap="round" stroke-linejoin="round" {}
         }
     }
 }
@@ -114,6 +170,7 @@ pub fn category_index(
     space: &Space,
     who: &Identity,
     lang: Lang,
+    bell: Bell,
     rows: &[(&Category, CategoryCount)],
 ) -> Markup {
     let body = html! {
@@ -142,7 +199,7 @@ pub fn category_index(
             }
         }
     };
-    layout(space, who, lang, &space.title, body)
+    layout(space, who, lang, bell, &space.title, body)
 }
 
 /// What a search found. The snippet arrives with `[` and `]` around the
@@ -152,6 +209,7 @@ pub fn search_page(
     space: &Space,
     who: &Identity,
     lang: Lang,
+    bell: Bell,
     find: &str,
     hits: &[crate::db::search::Hit],
 ) -> Markup {
@@ -177,7 +235,7 @@ pub fn search_page(
             }
         }
     };
-    layout_with_search(space, who, lang, lang.t("search_results"), find, body)
+    layout_with_search(space, who, lang, bell, lang.t("search_results"), find, body)
 }
 
 /// The unsubscribe page. Deliberately plain and deliberately outside the
@@ -297,7 +355,13 @@ fn icon_bin() -> Markup {
 /// see is a question nobody can answer. The way back is a link to the topic,
 /// so that leaving is as easy as arriving — the browser's back button is not
 /// a design.
-pub fn delete_question_page(space: &Space, who: &Identity, lang: Lang, post: &Post) -> Markup {
+pub fn delete_question_page(
+    space: &Space,
+    who: &Identity,
+    lang: Lang,
+    bell: Bell,
+    post: &Post,
+) -> Markup {
     let body = html! {
         h1 { (lang.t("delete_title")) }
         p class="warn" { (lang.t("delete_question")) }
@@ -316,7 +380,7 @@ pub fn delete_question_page(space: &Space, who: &Identity, lang: Lang, post: &Po
             a class="back" href={ "/t/" (post.topic_id) } { (lang.t("cancel")) }
         }
     };
-    layout(space, who, lang, lang.t("delete_title"), body)
+    layout(space, who, lang, bell, lang.t("delete_title"), body)
 }
 
 /// A space, rendered the way it is configured: a timeline shows the posts
@@ -326,6 +390,7 @@ pub fn space_page(
     space: &Space,
     who: &Identity,
     lang: Lang,
+    bell: Bell,
     category: Option<&Category>,
     topics: &[TopicRow],
 ) -> Markup {
@@ -447,18 +512,30 @@ pub fn space_page(
             }
         }
     };
-    layout(space, who, lang, &space.title, body)
+    layout(space, who, lang, bell, &space.title, body)
+}
+
+/// What a topic page shows, as opposed to who is looking at it.
+pub struct TopicView<'a> {
+    pub category: Option<&'a Category>,
+    pub topic: &'a Topic,
+    pub posts: &'a [Post],
+    pub following: bool,
 }
 
 pub fn topic_page(
     space: &Space,
     who: &Identity,
     lang: Lang,
-    category: Option<&Category>,
-    topic: &Topic,
-    posts: &[Post],
-    following: bool,
+    bell: Bell,
+    view: TopicView,
 ) -> Markup {
+    let TopicView {
+        category,
+        topic,
+        posts,
+        following,
+    } = view;
     let may_reply = category.is_some_and(|c| crate::authz::may_reply(who, c));
     let body = html! {
         // THE WAY BACK. A topic is reached from a mail, from a search or from
@@ -484,7 +561,9 @@ pub fn topic_page(
             }
         }
         @for (i, post) in posts.iter().enumerate() {
-            article class="post" {
+            // An anchor per post, because the bell links to the first post
+            // somebody has not read — not to the top of a long thread.
+            article class="post" id={ "p" (post.id) } {
                 p class="byline" {
                     span class="name" { (post.author_name) }
                     span class="sep" { " · " }
@@ -553,5 +632,67 @@ pub fn topic_page(
             }
         }
     };
-    layout(space, who, lang, &topic.title, body)
+    layout(space, who, lang, bell, &topic.title, body)
+}
+
+/// `/notifications`: what is new first, then what was already seen.
+pub fn notifications_page(
+    space: &Space,
+    who: &Identity,
+    lang: Lang,
+    bell: Bell,
+    entries: &[crate::db::inbox::Entry],
+) -> Markup {
+    use crate::db::inbox::Entry;
+    let body = html! {
+        h1 { (lang.t("notifications")) }
+        @if entries.is_empty() {
+            p class="empty" { (lang.t("nothing_new")) }
+        } @else {
+            @if bell.unread > 0 {
+                // A form, like following: it changes something, and a GET
+                // that did would be triggered by whatever prefetches links.
+                form class="follow read-all" method="post" action="/notifications/read" {
+                    button type="submit" { (lang.t("mark_all_read")) }
+                }
+            }
+            ul class="topics inbox" {
+                @for entry in entries {
+                    li class=(if entry.unread() { "new" } else { "seen" }) {
+                        @match entry {
+                            Entry::Replies { topic_id, topic_title, count, latest_author, latest_at, first_post_id, unread } => {
+                                // "new" only while it is: a bundle that was
+                                // read says how many there were, not that they
+                                // are waiting.
+                                @let key = match (*unread, *count == 1) {
+                                    (true, true) => "new_reply_in",
+                                    (true, false) => "new_replies_in",
+                                    (false, true) => "reply_in",
+                                    (false, false) => "replies_in",
+                                };
+                                a href={ "/t/" (topic_id) "#p" (first_post_id) } {
+                                    (count) " " (lang.t(key))
+                                    " " b { (topic_title) }
+                                }
+                                span class="byline" {
+                                    (lang.t("latest_from")) " "
+                                    span class="name" { (latest_author) }
+                                    span class="sep" { " · " }
+                                    (moment(*latest_at))
+                                }
+                            }
+                            Entry::Mention { topic_id, topic_title, post_id, author, at, .. } => {
+                                a href={ "/t/" (topic_id) "#p" (post_id) } {
+                                    span class="name" { (author) } " "
+                                    (lang.t("mentioned_you_in")) " " b { (topic_title) }
+                                }
+                                span class="byline" { (moment(*at)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    layout(space, who, lang, bell, lang.t("notifications"), body)
 }

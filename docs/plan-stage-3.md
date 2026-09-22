@@ -13,7 +13,7 @@ stage is called done.
 |---|---|
 | Done | **Task 1** — a handle and the groups on the account |
 | Done | **Task 2** — the inbox, filled by replies |
-| Open | **Task 3** — the bell and `/notifications` |
+| Done | **Task 3** — the bell and `/notifications` |
 | Open | **Task 4** — `@handle`: found, checked, noted, highlighted |
 | Open | **Task 5** — the mention mail, and its way out |
 
@@ -75,20 +75,23 @@ unit tests for the claim are red-then-green.
 **Files:** `src/web/mod.rs`, `src/web/views.rs`, `src/web/style.css`,
 `i18n/de.toml`, `i18n/en.toml`, `tests/inbox.rs` (new), `tests/preview.rs`
 
-- [ ] `layout` takes the unread count and draws the bell in the header — an
+- [x] `layout` takes the unread count and draws the bell in the header — an
       inline SVG like the pencil, a link to `/notifications`, the number only
       when it is not zero, and an `aria-label` that says it in words. Every
       handler that renders a page asks for the count **after** it has changed
       anything (a topic page marks itself read first, so its own bundle is not
       counted on the page that just cleared it).
-- [ ] `GET /notifications` lists the entries; `POST /notifications/read`
+- [x] `GET /notifications` lists the entries; `POST /notifications/read`
       marks all read and redirects back.
-- [ ] `GET /t/{id}` marks that topic's entries read for the viewer.
-- [ ] Route tests: the badge after somebody else replies, no badge after your
+- [x] `GET /t/{id}` marks that topic's entries read for the viewer.
+- [x] Route tests: the badge after somebody else replies, no badge after your
       own reply, the badge gone after opening the topic, the bundle wording,
       "mark all as read", and the page answering only inside its own space.
-- [ ] Preview pages for the bell with and without a number, and for the list.
-      Opened and read, not only generated.
+- [x] Preview pages for the bell with and without a number, and for the list.
+      Opened and read, not only generated. That look found two things no
+      assertion had: a read bundle still said "1 new reply" (now a test), and
+      the header ran off a 390px screen — which it already did before the
+      bell; the navigation wraps now.
 
 ## Task 4 · `@handle`: found, checked, noted, highlighted
 
