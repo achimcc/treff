@@ -24,7 +24,7 @@ treff sees as `sub`.
 |---|---|
 | Done | **Task 1** — the `@` list leaves out whoever is writing |
 | Done | **Task 2** — the directory: accounts and groups from SCIM, in the database |
-| Open | **Task 3** — `/scim/v2`: the routes Authentik calls, on the internal listener |
+| Done | **Task 3** — `/scim/v2`: the routes Authentik calls, on the internal listener |
 | Open | **Task 4** — module option, VM test, ADR 0007 |
 
 ---
@@ -59,30 +59,42 @@ treff sees as `sub`.
 **Files:** `src/web/scim.rs` (new), `src/web/internal.rs`, `src/main.rs`,
 `tests/scim.rs` (new)
 
-- [ ] On the internal listener, its own token (`TREFF_SCIM_TOKEN_FILE`); absent
-      → the routes do not exist.
-- [ ] `GET /scim/v2/ServiceProviderConfig`: patch false, bulk false
+- [x] On the internal listener, its own token (`TREFF_SCIM_TOKEN_FILE`); absent
+      → the routes do not exist. The three tokens became a named `Tokens`
+      struct — three `Option<Vec<u8>>` in a row is the one place they could be
+      confused, and the whole point is that they cannot.
+- [x] `GET /scim/v2/ServiceProviderConfig`: patch false, bulk false
       (`maxOperations` 0), filter true, no sort, no etag, bearer auth.
-- [ ] `/Users`: `POST` (upsert, 201), `GET` (list with `startIndex`/`count`,
-      `filter=userName eq "…"`), `GET /{id}`, `PUT /{id}`, `DELETE /{id}` (204).
-      `id` = `externalId`, a UUID, or 400.
-- [ ] `/Groups`: `POST` (upsert by name, 201), `GET` (list, `filter=displayName
-      eq "…"`), `GET /{id}` with members, `PUT /{id}`, `PATCH /{id}` (the three
-      member forms only; anything else 400), `DELETE /{id}` (204).
-- [ ] `application/scim+json`; errors in the SCIM error shape.
-- [ ] Route tests: the whole sequence Authentik runs, bodies as its client
+      **Every field the client validates is named in the test**: a missing one
+      is not an error over there, it falls back to its own defaults silently.
+- [x] `/Users`: `POST` (upsert, 201), `GET` (list with `startIndex`/`count`,
+      `filter=userName eq "…"`), `GET /{id}`, `PUT /{id}` (upsert too — a 404
+      would only make the client create the same row), `DELETE /{id}` (204,
+      404 when it was never here). `id` = `externalId`, a UUID, or 400.
+- [x] `/Groups`: `POST` (upsert by name, 201), `GET` (list, `filter=displayName
+      eq "…"`), `GET /{id}` with members, `PUT /{id}` (409 when another group
+      holds the name), `PATCH /{id}` (the three member forms only; anything
+      else 400, and the whole request), `DELETE /{id}` (204).
+- [x] `application/scim+json`; errors in the SCIM error shape.
+- [x] Route tests: the whole sequence Authentik runs, bodies as its client
       builds them; wrong token 401; a non-UUID id 400 and no row; a `PATCH` of
       another kind 400 and no change; the result: a person from SCIM is in the
       `@` list of a space their group may read, and nowhere else.
 
+**A filter treff does not understand is refused, not ignored.** An ignored
+filter answers "everybody", and the client takes the first resource of that
+answer for the person it was looking for.
+
 ## Task 4 · Module option, VM test, ADR 0007
 
-- [ ] `services.treff.internal.scimTokenFile`, and the listener assertion
+- [x] `services.treff.internal.scimTokenFile`, and the listener assertion
       covers it.
-- [ ] The VM test creates a user and a group over SCIM and finds the handle
+- [x] The VM test creates a user and a group over SCIM and finds the handle
       in `/mentionable`... through the internal side only (the VM has no
-      provider to sign in with): it checks the rows with `treff export`.
-- [ ] ADR 0007: why SCIM and not treff asking the provider; what the door
+      provider to sign in with): it checks the row in the database `treff
+      export` writes, read with `sqlite3` — the ROW that `may_read` and the
+      `@` list read, not treff's own answer about it.
+- [x] ADR 0007: why SCIM and not treff asking the provider; what the door
       accepts; that a deleted person keeps their posts.
 
 ## After the stage

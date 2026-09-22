@@ -22,8 +22,11 @@ fn internal(db: &treff::db::Db, events: Option<&str>, bell: Option<&str>) -> axu
             treff::config::Config::parse(common::CONFIGURATION).expect("configuration"),
         ),
         db.clone(),
-        events.map(|t| t.as_bytes().to_vec()),
-        bell.map(|t| t.as_bytes().to_vec()),
+        treff::web::internal::Tokens {
+            events: events.map(|t| t.as_bytes().to_vec()),
+            bell: bell.map(|t| t.as_bytes().to_vec()),
+            scim: None,
+        },
     ))
 }
 

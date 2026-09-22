@@ -3,6 +3,7 @@
 //! later page passes through, and it is the layer that fails closed.
 
 pub mod internal;
+pub mod scim;
 pub mod views;
 
 use crate::auth::{OidcSettings, Sessions};

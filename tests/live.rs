@@ -155,8 +155,10 @@ fn internal(db: &treff::db::Db) -> axum::Router {
             treff::config::Config::parse(common::CONFIGURATION).expect("configuration"),
         ),
         db.clone(),
-        None,
-        Some(BELL.as_bytes().to_vec()),
+        treff::web::internal::Tokens {
+            bell: Some(BELL.as_bytes().to_vec()),
+            ..Default::default()
+        },
     ))
 }
 

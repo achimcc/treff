@@ -49,6 +49,7 @@ pkgs.testers.runNixOSTest {
           listen = "127.0.0.1:8081";
           eventsTokenFile = "%d/events";
           bellTokenFile = "%d/bell";
+          scimTokenFile = "%d/scim";
         };
         events = {
           space = "forum.example.org";
@@ -108,12 +109,18 @@ pkgs.testers.runNixOSTest {
         "oidc:/etc/treff-secret"
         "events:/etc/treff-events"
         "bell:/etc/treff-bell"
+        "scim:/etc/treff-scim"
       ];
 
       environment.etc."treff-secret".text = "the-client-secret";
       environment.etc."treff-events".text = "the-events-token";
       environment.etc."treff-bell".text = "the-bell-token";
-      environment.systemPackages = [ pkgs.curl ];
+      environment.etc."treff-scim".text = "the-scim-token";
+      environment.systemPackages = [
+        pkgs.curl
+        # The VM test reads the ROW, not treff's answer about it (ADR 0007).
+        pkgs.sqlite
+      ];
     };
 
   testScript = ''
@@ -219,5 +226,59 @@ pkgs.testers.runNixOSTest {
     assert '"unread":1' in answer, f"the bell did not count the event: {answer}"
     # And the public listener has none of it.
     assert code("forum.example.org", "/internal/bell") != "200", "the public side answered /internal"
+
+    # THE SCIM DOOR (ADR 0007). There is no identity provider in this VM, so
+    # nobody can sign in — which is exactly the case the stage is about: the
+    # person has to be here WITHOUT ever having come.
+    scim = "http://127.0.0.1:8081/scim/v2"
+    ada = "5b1e0c1c-1111-4a4a-9b9b-000000000001"
+    household = "5b1e0c1c-2222-4a4a-9b9b-00000000000a"
+    def as_provider(args):
+        return machine.succeed(
+            f"curl -s -o /dev/null -w '%{{http_code}}' "
+            f"-H 'Authorization: Bearer the-scim-token' "
+            f"-H 'Content-Type: application/scim+json' {args}"
+        )
+    assert internal(f"{scim}/ServiceProviderConfig") == "401", "SCIM answered without a token"
+    assert internal(
+        f"-H 'Authorization: Bearer the-bell-token' {scim}/ServiceProviderConfig"
+    ) == "401", "the bell token opened SCIM"
+    assert as_provider(f"{scim}/ServiceProviderConfig") == "200", "no ServiceProviderConfig"
+
+    user = (
+        "--data '{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\"],"
+        "\"userName\":\"ada\",\"displayName\":\"Ada Lovelace\","
+        "\"emails\":[{\"value\":\"ada@example.org\",\"primary\":true}],"
+        f"\"active\":true,\"externalId\":\"{ada}\"}}' -X POST {scim}/Users"
+    )
+    assert as_provider(user) == "201", "SCIM did not take the person"
+    group = (
+        "--data '{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
+        f"\"displayName\":\"Household\",\"externalId\":\"{household}\"}}' -X POST {scim}/Groups"
+    )
+    assert as_provider(group) == "201", "SCIM did not take the group"
+    members = (
+        "--data '{\"Operations\":[{\"op\":\"add\",\"path\":\"members\","
+        f"\"value\":[{{\"value\":\"{ada}\"}}]}}]}}' -X PATCH {scim}/Groups/{household}"
+    )
+    assert as_provider(members) == "200", "SCIM did not take the membership"
+    # A shape treff does not know changes nothing and says so.
+    assert as_provider(
+        "--data '{\"Operations\":[{\"op\":\"replace\",\"path\":\"displayName\","
+        f"\"value\":\"Taken over\"}}]}}' -X PATCH {scim}/Groups/{household}"
+    ) == "400", "an unknown PATCH was taken"
+
+    # THE ROW ITSELF, not treff's own answer about it: this is the row the `@`
+    # list and `may_read` read, and a SCIM door that wrote anywhere else would
+    # pass every one of its own routes and still change nothing.
+    machine.succeed("systemd-run --pipe --wait --property=DynamicUser=no "
+                    "--setenv=TREFF_DATA_DIR=/var/lib/treff "
+                    "${package}/bin/treff export /tmp/after-scim.db")
+    row = machine.succeed(
+        "sqlite3 /tmp/after-scim.db \"select handle || ' ' || groups_json "
+        f"from accounts where subject = '{ada}'\""
+    ).strip()
+    assert row == 'ada [\"Household\"]', f"the person SCIM pushed is not a reader: {row}"
+    assert code("forum.example.org", "/scim/v2/Users") != "200", "the public side answered /scim"
   '';
 }

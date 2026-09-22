@@ -158,8 +158,17 @@ pub async fn list_users(
     Ok((total, rows.iter().map(user_from).collect()))
 }
 
-/// Somebody left: like inactive, and out of every group. `false` if SCIM never
-/// sent them.
+/// Somebody left: like inactive, out of every group, and OUT OF THE
+/// DIRECTORY. `false` if SCIM never sent them, or already took them back.
+///
+/// **Clearing `scim_user_name` is what makes the deletion a deletion.** The
+/// row stays for the posts, but it stops being a SCIM resource: it is not
+/// listed, not found by the `userName` filter, and `GET /Users/{id}` is a
+/// 404. Leaving it findable would be worse than untidy — the provider's
+/// `discover` matches a listed resource to one of ITS users by user name and
+/// address, so a NEW account with the same user name would be linked to the
+/// UUID of the person who left, and everything written for the newcomer
+/// would land in the leaver's row.
 pub async fn delete_user(db: &Db, id: &str) -> anyhow::Result<bool> {
     let Some(user) = get_user(db, id).await? else {
         return Ok(false);
@@ -173,6 +182,10 @@ pub async fn delete_user(db: &Db, id: &str) -> anyhow::Result<bool> {
     )
     .await?;
     sqlx::query("DELETE FROM scim_members WHERE subject = ?")
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    sqlx::query("UPDATE accounts SET scim_user_name = NULL WHERE subject = ?")
         .bind(id)
         .execute(db.pool())
         .await?;
@@ -475,6 +488,11 @@ mod tests {
 
         assert!(delete_user(&db, KONRAD).await.expect("delete"));
         assert_eq!(row(&db, KONRAD).await.0, None);
+        assert_eq!(
+            row(&db, KONRAD).await.3,
+            "Konrad Müller",
+            "the row is kept for the posts"
+        );
         assert!(
             get_group(&db, "g-1")
                 .await
@@ -483,7 +501,23 @@ mod tests {
                 .members
                 .is_empty()
         );
+        // AND THEY ARE OUT OF THE DIRECTORY, not merely switched off — so
+        // the provider cannot later match a NEW account of the same user name
+        // to this UUID and write the newcomer into the leaver's row.
+        assert_eq!(get_user(&db, KONRAD).await.expect("get"), None);
+        assert_eq!(list_users(&db, None, 1, 10).await.expect("list").0, 0);
+        assert!(!delete_user(&db, KONRAD).await.expect("again"));
         assert!(!delete_user(&db, "never-sent").await.expect("delete"));
+
+        // Coming back restores the directory entry, and the group with it.
+        put_user(&db, &konrad()).await.expect("back");
+        assert_eq!(
+            get_user(&db, KONRAD)
+                .await
+                .expect("get")
+                .map(|u| u.user_name),
+            Some("Konrad".into())
+        );
     }
 
     /// The sign-in writes the same row, not a second one.

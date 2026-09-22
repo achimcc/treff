@@ -284,6 +284,22 @@ in
           not open the other. Unset, the routes do not exist.
         '';
       };
+      scimTokenFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "%d/scim";
+        description = ''
+          A **path** to the bearer token for `/scim/v2`, the route the
+          identity provider pushes its people and groups through (ADR 0007).
+          Its own token again: this one **writes** who exists, so a leak of
+          the bell's token must not reach it. Unset, the routes do not exist.
+
+          Only the identity provider may reach this port. The mapping on the
+          provider's side has to set `externalId` to the user's UUID — treff
+          refuses anything else, because that equality is what makes the
+          person pushed in and the person who signs in one account.
+        '';
+      };
     };
 
     events = lib.mkOption {
@@ -428,7 +444,11 @@ in
         # refuses first.
         assertion =
           cfg.internal.listen != null
-          || (cfg.internal.eventsTokenFile == null && cfg.internal.bellTokenFile == null);
+          || (
+            cfg.internal.eventsTokenFile == null
+            && cfg.internal.bellTokenFile == null
+            && cfg.internal.scimTokenFile == null
+          );
         message = "services.treff.internal has a token file but no `listen`.";
       }
       {
@@ -470,6 +490,9 @@ in
       }
       // lib.optionalAttrs (cfg.internal.bellTokenFile != null) {
         TREFF_BELL_TOKEN_FILE = cfg.internal.bellTokenFile;
+      }
+      // lib.optionalAttrs (cfg.internal.scimTokenFile != null) {
+        TREFF_SCIM_TOKEN_FILE = cfg.internal.scimTokenFile;
       }
       // lib.optionalAttrs (cfg.webhook.url != null) {
         TREFF_WEBHOOK_URL = cfg.webhook.url;

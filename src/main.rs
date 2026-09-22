@@ -185,8 +185,7 @@ async fn serve() -> anyhow::Result<()> {
         let internal_state = treff::web::internal::InternalState::new(
             state.config.clone(),
             state.db.clone(),
-            settings.events_token,
-            settings.bell_token,
+            settings.tokens,
         );
         let listener = tokio::net::TcpListener::bind(&settings.listen).await?;
         eprintln!("treff: the internal listener is on {}", settings.listen);

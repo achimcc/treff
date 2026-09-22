@@ -1,7 +1,7 @@
 //! The internal listener: a second door, beside treff's own sign-in, for
 //! other services on the same machine (ADR 0006).
 //!
-//! Two routes, each behind its own token:
+//! Three routes, each behind its own token:
 //!
 //! * `POST /internal/events` — an event for a person, from a service that
 //!   knows about it (the first: a film request that became available or
@@ -10,6 +10,9 @@
 //!   (the start page). The person is named by the proxy in front, from the
 //!   identity provider's answer: `X-Treff-User` (a handle) and
 //!   `X-Treff-Groups` (`|`-separated, as Authentik writes them).
+//! * `/scim/v2/…` — the identity provider pushing its people and groups in
+//!   (`web::scim`, ADR 0007). The only one of the three that WRITES who
+//!   exists, which is why it has a token of its own rather than the bell's.
 //!
 //! **It is its own router on its own listener.** No sessions, no `Host`
 //! routing, no page — and the public router has none of these routes, so
@@ -27,26 +30,29 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use std::sync::Arc;
 
+/// What opens each route. NAMED, not three positional `Option<Vec<u8>>` in a
+/// row — the whole point of the separation is that they cannot be confused,
+/// and an argument list is the one place where they easily could be.
+#[derive(Default)]
+pub struct Tokens {
+    pub events: Option<Vec<u8>>,
+    pub bell: Option<Vec<u8>>,
+    pub scim: Option<Vec<u8>>,
+}
+
 #[derive(Clone)]
 pub struct InternalState {
-    config: Arc<Config>,
-    db: Db,
-    events_token: Option<Arc<Vec<u8>>>,
-    bell_token: Option<Arc<Vec<u8>>>,
+    pub(crate) config: Arc<Config>,
+    pub(crate) db: Db,
+    pub(crate) tokens: Arc<Tokens>,
 }
 
 impl InternalState {
-    pub fn new(
-        config: Arc<Config>,
-        db: Db,
-        events_token: Option<Vec<u8>>,
-        bell_token: Option<Vec<u8>>,
-    ) -> Self {
+    pub fn new(config: Arc<Config>, db: Db, tokens: Tokens) -> Self {
         Self {
             config,
             db,
-            events_token: events_token.map(Arc::new),
-            bell_token: bell_token.map(Arc::new),
+            tokens: Arc::new(tokens),
         }
     }
 }
@@ -54,8 +60,7 @@ impl InternalState {
 /// Where the internal listener lives, and what opens each of its routes.
 pub struct Settings {
     pub listen: String,
-    pub events_token: Option<Vec<u8>>,
-    pub bell_token: Option<Vec<u8>>,
+    pub tokens: Tokens,
 }
 
 /// Where the listener lives and what opens it, from the environment.
@@ -78,15 +83,15 @@ pub fn from_env() -> anyhow::Result<Option<Settings>> {
         }
         Ok(Some(t.as_bytes().to_vec()))
     };
-    let events = token("TREFF_EVENTS_TOKEN_FILE")?;
-    let bell = token("TREFF_BELL_TOKEN_FILE")?;
+    let tokens = Tokens {
+        events: token("TREFF_EVENTS_TOKEN_FILE")?,
+        bell: token("TREFF_BELL_TOKEN_FILE")?,
+        scim: token("TREFF_SCIM_TOKEN_FILE")?,
+    };
+    let any = tokens.events.is_some() || tokens.bell.is_some() || tokens.scim.is_some();
     match listen {
-        Some(listen) => Ok(Some(Settings {
-            listen,
-            events_token: events,
-            bell_token: bell,
-        })),
-        None if events.is_some() || bell.is_some() => {
+        Some(listen) => Ok(Some(Settings { listen, tokens })),
+        None if any => {
             anyhow::bail!(
                 "a token file for the internal listener is set, TREFF_INTERNAL_LISTEN is not"
             )
@@ -97,19 +102,22 @@ pub fn from_env() -> anyhow::Result<Option<Settings>> {
 
 pub fn router(state: InternalState) -> Router {
     let mut router = Router::new();
-    if state.events_token.is_some() {
+    if state.tokens.events.is_some() {
         router = router.route("/internal/events", post(take_event));
     }
-    if state.bell_token.is_some() {
+    if state.tokens.bell.is_some() {
         router = router
             .route("/internal/bell", get(bell))
             .route("/internal/bell/stream", get(bell_stream));
+    }
+    if state.tokens.scim.is_some() {
+        router = router.merge(crate::web::scim::routes(&state));
     }
     router.with_state(state)
 }
 
 /// `Authorization: Bearer <token>`, compared in constant time.
-fn presents(headers: &HeaderMap, token: &[u8]) -> bool {
+pub(crate) fn presents(headers: &HeaderMap, token: &[u8]) -> bool {
     let Some(given) = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -133,7 +141,7 @@ async fn take_event(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let Some(token) = state.events_token.as_deref() else {
+    let Some(token) = state.tokens.events.as_deref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if !presents(&headers, token) {
@@ -170,7 +178,7 @@ async fn take_event(
 const BELL_ENTRIES: i64 = 20;
 
 async fn bell(State(state): State<InternalState>, headers: HeaderMap) -> Response {
-    let Some(token) = state.bell_token.as_deref() else {
+    let Some(token) = state.tokens.bell.as_deref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if !presents(&headers, token) {
@@ -188,7 +196,7 @@ async fn bell(State(state): State<InternalState>, headers: HeaderMap) -> Respons
 /// The same answer, live, for the start page (`live::bell_stream`). The
 /// person is who the proxy named when the stream was opened.
 async fn bell_stream(State(state): State<InternalState>, headers: HeaderMap) -> Response {
-    let Some(token) = state.bell_token.as_deref() else {
+    let Some(token) = state.tokens.bell.as_deref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if !presents(&headers, token) {
