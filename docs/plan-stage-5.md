@@ -124,4 +124,5 @@ does this person have?
 
 ## After the stage
 
-- [ ] Preview, `nix flake check`, version `0.7.0`, CHANGELOG, README.
+- [x] Preview, version `0.7.0`, CHANGELOG, README.
+- [ ] `nix flake check`.

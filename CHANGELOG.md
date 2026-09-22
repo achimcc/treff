@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.0 — 2026-09-22
+
+The bell grows beyond the forum: it opens in place, follows every change at
+once, takes events from other services, and can stand on a page that is not
+treff's (plan-stage-5, ADR 0006).
+
+- **The bell opens an overlay.** A click shows the entries under the bell; a
+  click on one goes to it, "all notifications" goes to `/notifications`. The
+  bell is a chip with a filled badge now. `bell.js` is the second script
+  (ADR 0005, amended); without it the bell is a link, as before.
+- **Live.** Every write that can change somebody's unread announces its
+  space after the commit; `GET /notifications/stream` (Server-Sent Events)
+  sends the new number and entries at once, and nothing to anybody whose
+  bell did not change.
+- **Events from elsewhere.** `[events]` names one space and the hosts an
+  event may link to. Events are stored by handle — the person may never have
+  signed in — checked field by field, one entry per source key and kind.
+  The first kinds: a film request that became available, or failed. No mail.
+- **An internal listener** (`TREFF_INTERNAL_LISTEN`, NixOS
+  `services.treff.internal`), its own router, a token per route:
+  `POST /internal/events` takes an event; `GET /internal/bell` and
+  `/internal/bell/stream` answer, for the proxy of another page, what the
+  bell of the person it names shows. Read-only, and one empty answer for
+  everybody it cannot be given to. ADR 0006 says why this door is narrow and
+  what it costs.
+- `GET /notifications.json` — the overlay's contents without a stream.
+
 ## 0.6.0 — 2026-09-22
 
 Completing `@handle`, as asked for the day 0.5.0 shipped: *when somebody
