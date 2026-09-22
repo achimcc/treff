@@ -802,3 +802,44 @@ header nav .bell:hover { color: var(--on); }
 /* `.follow` pulls itself up under a heading; under a list it needs the
    opposite, or its button sits on the list's last rule. */
 .mention-mail { margin: 1.75rem 0 0; }
+
+/* --- Completing @handle (mention.js, ADR 0005) ------------------------- */
+
+/* The list hangs under the field it completes. `.mention-host` is a frame the
+   script puts around the field, so without the script nothing here applies. */
+.mention-host { position: relative; display: block; }
+
+.mention-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 10;
+    min-width: 16rem;
+    max-width: 100%;
+    max-height: 14rem;
+    overflow-y: auto;
+    margin: .25rem 0 0;
+    padding: .25rem 0;
+    list-style: none;
+    border: 1px solid hsl(150 50% 32%);
+    border-radius: 3px;
+    background: var(--veil);
+    box-shadow: 0 6px 24px hsl(0 0% 0% / .5);
+}
+
+.mention-list[hidden] { display: none; }
+
+.mention-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .4rem .75rem;
+    cursor: pointer;
+    color: var(--text);
+}
+
+.mention-list .handle { font-family: var(--mono); font-size: 12px; color: var(--murmur); }
+
+.mention-list li[aria-selected="true"],
+.mention-list li:hover { background: hsl(150 70% 45% / .14); }
+.mention-list li[aria-selected="true"] .handle { color: var(--on); }

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!-- Drives the REAL src/web/mention.js in a browser; see run.sh. Inline
+     script is fine here: this file is a test fixture, never served by treff. -->
+<html><head><meta charset="utf-8"><title>mention.js</title>
+<script>
+  // The suggestion list as /mentionable would send it (sorted by name), or a
+  // failure.
+  var FAIL = location.search.indexOf("fail") >= 0;
+  var asked = 0;
+  window.fetch = function (url) {
+    asked++;
+    if (FAIL) return Promise.resolve({ ok: false, json: function () { return Promise.resolve(null); } });
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve([
+      { name: "Ada Lovelace", handle: "ada" },
+      { name: "Ben", handle: "ben" },
+      // A handle that shares no beginning with the name: the only way to
+      // find her is BY HANDLE (found missing by a sabotage run on 2026-09-22).
+      { name: "Dora", handle: "xd" },
+      { name: "Konrad Müller", handle: "konrad" }
+    ]); } });
+  };
+</script>
+<script src="/src/web/mention.js"></script>
+</head><body>
+<form><textarea id="t"></textarea></form>
+<pre id="out"></pre>
+<script>
+  var results = {};
+  var t = document.getElementById("t");
+  function box() { return document.getElementById(t.getAttribute("aria-controls")); }
+  function shown() {
+    var b = box();
+    if (!b || b.hidden) return null;
+    return Array.prototype.map.call(b.children, function (li) { return li.textContent; });
+  }
+  function type(value) {
+    t.value = value; t.focus(); t.setSelectionRange(value.length, value.length);
+    t.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function key(k) { t.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); }
+  function tick() { return new Promise(function (r) { setTimeout(r, 20); }); }
+
+  (async function () {
+    await tick();
+    type("hi @"); await tick();
+    results.bare_at_shows_everybody = shown();
+    results.expanded = t.getAttribute("aria-expanded");
+    type("hi @k"); await tick();
+    results.k_by_name_or_handle = shown();
+    type("hi @x"); await tick();
+    results.x_by_handle_only = shown();
+    type("hi @mü"); await tick();
+    results.mu_by_second_name_word = shown();
+    type("hi @xyz"); await tick();
+    results.nothing_fits_closes = shown();
+    type("mail me a@"); await tick();
+    results.address_is_not_a_mention = shown();
+    type("see `x` then @"); await tick();
+    key("ArrowDown"); key("Enter"); await tick();
+    results.arrow_enter_takes_second = t.value;
+    results.closed_after_taking = shown();
+    type("@a"); await tick();
+    key("Tab"); await tick();
+    results.tab_takes = t.value;
+    type("x @"); await tick();
+    key("Escape"); await tick();
+    results.escape_closes = shown();
+    type("x @b"); await tick();
+    var first = box().children[0];
+    if (first) first.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    await tick();
+    results.click_takes = t.value;
+    results.fetches = asked;
+    document.getElementById("out").textContent = JSON.stringify(results);
+  })();
+</script>
+</body></html>

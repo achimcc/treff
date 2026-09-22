@@ -14,7 +14,7 @@ typing after the `@`, complete it.*
 |---|---|
 | Done | **Task 1** — `GET /mentionable`: who may be offered |
 | Done | **Task 2** — the script's route, the CSP, and the tag on the page |
-| Open | **Task 3** — `mention.js`: the overlay |
+| Done | **Task 3** — `mention.js`: the overlay |
 
 ---
 
@@ -58,22 +58,31 @@ one tag the layout writes
 **Files:** `src/web/mention.js`, `src/web/style.css`, `tests/preview.rs`,
 `tests/js/mention.html` (new)
 
-- [ ] On every `textarea` in a form: an `@` at a word boundary (the rule of
+- [x] On every `textarea` in a form: an `@` at a word boundary (the rule of
       `markup::mention_spans`) opens an overlay under the textarea with the
       whole list, loaded from `/mentionable` once per page on the first `@`.
-- [ ] Typing after the `@` filters: prefix of handle or of any word of the
+- [x] Typing after the `@` filters: prefix of handle or of any word of the
       name, case-insensitive. No match → the overlay closes.
-- [ ] Arrow keys move, Enter or Tab take, Escape or a space closes; a click
+- [x] Arrow keys move, Enter or Tab take, Escape or a space closes; a click
       or tap takes. Taking writes `@handle ` at the caret, replacing what was
       typed after the `@`.
-- [ ] Accessible: `role="listbox"`, `aria-activedescendant`, the textarea
+- [x] Accessible: `role="listbox"`, `aria-activedescendant`, the textarea
       gets `aria-expanded`/`aria-controls` while it is open.
-- [ ] The fetch failing, or the list being empty, leaves the textarea alone.
-- [ ] **Measured in a browser**, since `cargo test` cannot run the script:
+- [x] The fetch failing, or the list being empty, leaves the textarea alone.
+- [x] **Measured in a browser**, since `cargo test` cannot run the script:
       `tests/js/mention.html` loads the real file with a stubbed `fetch`,
       drives it with input and key events, and writes the outcome into the
       page; headless Chrome's `--dump-dom` is read back. Plus screenshots of
       the overlay on the preview topic page, wide and at 390px.
+      `tests/js/run.sh` compares against `tests/js/expected.txt` and exits 1
+      otherwise; `PRINT=1` shows what it did. A sabotage run (handle match
+      broken) first went UNNOTICED — every case also matched by name — so
+      the fixture now has a person findable by handle only, and the same
+      sabotage fails the run.
+- [x] Found while looking: `@mü` found nobody (the query stopped at the
+      first non-ASCII letter; people type the name, so the query takes any
+      letter and the handle is still what is written), and the list first
+      covered the field instead of hanging under it.
 
 ## After the stage
 
