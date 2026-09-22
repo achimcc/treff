@@ -260,6 +260,54 @@ pub async fn entries(
     Ok(out)
 }
 
+/// The bell for a HANDLE, as the start page asks for it: number and entries.
+///
+/// With an account behind the handle it is exactly what that account's bell
+/// in treff shows. Without one — somebody who only asks for films and never
+/// came to the forum — it is their events alone, which is also all there is.
+pub async fn for_handle(
+    db: &Db,
+    handle: &str,
+    space: &str,
+    limit: i64,
+) -> anyhow::Result<(i64, Vec<Entry>)> {
+    if let Some(subject) = crate::db::accounts::subject_of_handle(db, handle).await? {
+        let unread = unread_count(db, &subject, space).await?;
+        return Ok((unread, entries(db, &subject, space, limit).await?));
+    }
+    let unread: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM events WHERE handle = ? AND space = ? AND read_at IS NULL",
+    )
+    .bind(handle)
+    .bind(space)
+    .fetch_one(db.pool())
+    .await?;
+    let rows = sqlx::query(
+        "SELECT id, kind, title, reason, created_at, (read_at IS NULL) AS unread
+           FROM events WHERE handle = ? AND space = ?
+          ORDER BY unread DESC, created_at DESC LIMIT ?",
+    )
+    .bind(handle)
+    .bind(space)
+    .bind(limit.clamp(1, 200))
+    .fetch_all(db.pool())
+    .await?;
+    let list = rows
+        .iter()
+        .filter_map(|r| {
+            Some(Entry::Event {
+                id: r.get("id"),
+                kind: crate::db::events::Kind::parse(r.get("kind"))?,
+                title: r.get("title"),
+                reason: r.get("reason"),
+                at: r.get("created_at"),
+                unread: r.get::<i64, _>("unread") != 0,
+            })
+        })
+        .collect();
+    Ok((unread, list))
+}
+
 /// Opening a topic reads everything in it — replies and mentions alike.
 pub async fn mark_topic_read(db: &Db, subject: &str, topic_id: i64) -> anyhow::Result<()> {
     sqlx::query(

@@ -112,6 +112,16 @@ pub async fn with_handles(db: &Db) -> anyhow::Result<Vec<(String, Known)>> {
         .collect())
 }
 
+/// The account that answers to a handle, if one does.
+pub async fn subject_of_handle(db: &Db, handle: &str) -> anyhow::Result<Option<String>> {
+    Ok(
+        sqlx::query_scalar("SELECT subject FROM accounts WHERE handle = ?")
+            .bind(handle)
+            .fetch_optional(db.pool())
+            .await?,
+    )
+}
+
 /// Subject → handle, for putting the handle next to a name.
 pub async fn handles_of(db: &Db, subjects: &[String]) -> anyhow::Result<HashMap<String, String>> {
     if subjects.is_empty() {

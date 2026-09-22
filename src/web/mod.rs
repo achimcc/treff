@@ -2,6 +2,7 @@
 //! what every answer carries. No page is built here — this is the frame each
 //! later page passes through, and it is the layer that fails closed.
 
+pub mod internal;
 pub mod views;
 
 use crate::auth::{OidcSettings, Sessions};

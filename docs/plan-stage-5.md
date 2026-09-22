@@ -14,7 +14,7 @@ does this person have?
 | | |
 |---|---|
 | Done | **Task 1** — events: table, intake rules, entries in the bell |
-| Open | **Task 2** — the internal listener: `POST /internal/events`, `GET /internal/bell` |
+| Done | **Task 2** — the internal listener: `POST /internal/events`, `GET /internal/bell` |
 | Open | **Task 3** — live: a change signal, two streams, `bell.js` |
 | Open | **Task 4** — the NixOS module, the VM test, ADR 0006 |
 
@@ -51,27 +51,30 @@ does this person have?
 **Files:** `src/web/internal.rs` (new), `src/main.rs`, `tests/internal.rs`
 (new)
 
-- [ ] `TREFF_INTERNAL_LISTEN`, `TREFF_EVENTS_TOKEN_FILE`,
+- [x] `TREFF_INTERNAL_LISTEN`, `TREFF_EVENTS_TOKEN_FILE`,
       `TREFF_BELL_TOKEN_FILE`. No listen address → no listener. A route whose
       token file is not configured does not exist (404) — never "open because
       nothing was set". An unreadable or empty token file stops treff at
       startup.
-- [ ] Its own router: no sessions, no `Host` routing, no public page. Each
+- [x] Its own router: no sessions, no `Host` routing, no public page. Each
       route asks `Authorization: Bearer <its token>`, compared in constant
       time; the events token does not open the bell and the other way round.
-- [ ] `POST /internal/events` → 201 (new), 200 (already there), 400 with a
+- [x] `POST /internal/events` → 201 (new), 200 (already there), 400 with a
       reason (and no row), 401 (token).
-- [ ] `GET /internal/bell` reads `X-Treff-User` (a handle) and
+- [x] `GET /internal/bell` reads `X-Treff-User` (a handle) and
       `X-Treff-Groups` (Authentik's `|`-separated list). If those groups may
       read the events space: the unread count of that handle — replies,
       mentions and events, the same number the bell in treff shows — and the
       entries (at most 20, links absolute to the space), as
       `{"unread": n, "entries": [...]}`; otherwise `{"unread": 0, "entries":
       []}`. `Cache-Control: no-store`. Read-only: nothing is marked read here.
-- [ ] Tests: wrong token and swapped tokens are 401, an absent token file is
+- [x] Tests: wrong token and swapped tokens are 401, an absent token file is
       404, bad input leaves no row, the bell's number equals treff's own for
       the same person, foreign groups are 0, a header that is not a handle is
-      0, and the public router does not answer `/internal/*`.
+      0, and the public router does not answer `/internal/*`. The startup
+      refusals of `internal::from_env` (unreadable token file, a token without
+      a listener) are left to the VM test in task 4: environment variables are
+      process-wide, and unit tests run in parallel.
 
 ## Task 3 · Live: a change signal, two streams, `bell.js`
 

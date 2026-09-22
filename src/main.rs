@@ -151,6 +151,11 @@ async fn serve() -> anyhow::Result<()> {
         }
     };
 
+    // Read BEFORE anything listens: a token file that is set and unreadable
+    // is a door somebody meant to open, and it stops treff now rather than
+    // staying silently shut (ADR 0006).
+    let internal = treff::web::internal::from_env()?;
+
     let state = treff::web::AppState::new(config, db, oidc, &data_dir)?;
 
     // ZWEI SCHLEIFEN, NICHT EINE. Ein Mailserver, der klemmt, darf den Webhook
@@ -170,6 +175,27 @@ async fn serve() -> anyhow::Result<()> {
         let key = state.unsubscribe_key.clone();
         tokio::spawn(async move {
             notify_forever(db, config, key, hook, "webhook").await;
+        });
+    }
+
+    // THE SECOND DOOR, on its own listener (ADR 0006). Its own router: no
+    // sessions, no Host routing, nothing the public side has — and nothing
+    // of it on the public side.
+    if let Some(settings) = internal {
+        let internal_state = treff::web::internal::InternalState::new(
+            state.config.clone(),
+            state.db.clone(),
+            settings.events_token,
+            settings.bell_token,
+        );
+        let listener = tokio::net::TcpListener::bind(&settings.listen).await?;
+        eprintln!("treff: the internal listener is on {}", settings.listen);
+        tokio::spawn(async move {
+            if let Err(e) =
+                axum::serve(listener, treff::web::internal::router(internal_state)).await
+            {
+                eprintln!("treff: the internal listener stopped: {e}");
+            }
         });
     }
 
