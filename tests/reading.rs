@@ -224,9 +224,10 @@ async fn an_unknown_category_is_not_found() {
 }
 
 #[tokio::test]
-async fn no_page_carries_a_script_element() {
-    // The CSP forbids scripts anyway. This is the second lock: a page that
-    // needs one would be noticed here rather than in a browser console.
+async fn no_page_carries_a_script_element_but_its_own() {
+    // The CSP allows only treff's own file (ADR 0005). This is the second
+    // lock: the one `<script src>` the layout writes, and nothing else — not
+    // from a post, not inline, not a second file somebody added in passing.
     let (dir, db, app) = setup_with_db().await;
     let author = treff::authz::Identity {
         subject: "s1".into(),
@@ -254,7 +255,12 @@ async fn no_page_carries_a_script_element() {
             .await
             .expect("response");
         let html = body_of(response).await;
-        assert!(!html.contains("<script"), "{uri} carried a script: {html}");
+        let ours = r#"<script src="/assets/mention.js" defer></script>"#;
+        assert_eq!(html.matches(ours).count(), 1, "{uri}: {html}");
+        assert!(
+            !html.replace(ours, "").contains("<script"),
+            "{uri} carried a script: {html}"
+        );
     }
 }
 

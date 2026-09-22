@@ -1,4 +1,6 @@
-//! The pages. Server-rendered HTML, no script, no third party.
+//! The pages. Server-rendered HTML, no third party — and one script of our
+//! own, `mention.js`, which completes `@handle` and which nothing depends on
+//! (ADR 0005): every page works the same without it.
 //!
 //! Everything user-supplied reaches a page through one of two doors: a title,
 //! which Maud escapes on the way in, or a post body, which has already been
@@ -13,6 +15,10 @@ use maud::{DOCTYPE, Markup, PreEscaped, html};
 /// The stylesheet is served as its own route rather than inlined, so that
 /// `style-src 'self'` in the CSP stays true.
 pub const STYLESHEET: &str = include_str!("style.css");
+
+/// The one script, served as its own route like the stylesheet, so that
+/// `script-src 'self'` is the whole of what the CSP allows.
+pub const MENTION_SCRIPT: &str = include_str!("mention.js");
 
 /// What the header needs to know about the person looking, beyond who they
 /// are: how many things wait for them. Counted by the handler AFTER it has
@@ -53,6 +59,10 @@ pub fn layout_with_search(
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (title) " — " (space.title) }
                 link rel="stylesheet" href="/assets/style.css";
+                // `defer`, so it runs after the page is there and never holds
+                // it up. Only in the signed-in layout: the bare pages have no
+                // text field to complete, and no session to ask with.
+                script src="/assets/mention.js" defer {}
             }
             body {
                 header {
@@ -85,8 +95,9 @@ pub fn layout_with_search(
                                 // fuehrt. Das `../` davor setzt das Stylesheet.
                                 a class="up" href=(home) { (host_of(home)) }
                             }
-                            // A LINK, not a menu: the page has no script, and
-                            // the list behind it is a page of its own. The
+                            // A LINK, not a menu: nothing on the page depends
+                            // on script (ADR 0005), and the list behind it is
+                            // a page of its own. The
                             // number only when there is one — a bell that
                             // always says 0 is one people stop looking at.
                             a class="bell" href="/notifications"
@@ -495,8 +506,8 @@ pub fn space_page(
         @if let Some(category) = category {
             @if may_post {
                 // BEHIND A FOLD, because a list is read far more often than it
-                // is written to. `<details>` and not a script: the page has no
-                // JavaScript at all, and the browser has had this element for
+                // is written to. `<details>` and not a script: nothing here may
+                // depend on JavaScript (ADR 0005), and the browser has had this element for
                 // a decade.
                 details class="write" {
                     summary { (lang.t("new_topic")) }
@@ -527,7 +538,7 @@ pub struct TopicView<'a> {
     /// The handles that are marked up as mentions (`mentions::highlighted`).
     pub highlighted: &'a std::collections::HashSet<String>,
     /// Author subject → handle, shown next to the name so it can be copied:
-    /// there is no autocomplete without script.
+    /// completing `@` needs `mention.js`, and a page must work without it.
     pub handles: &'a std::collections::HashMap<String, String>,
 }
 
@@ -606,7 +617,8 @@ pub fn topic_page(
                         }
                         // A LINK TO THE QUESTION, not a button that acts. An
                         // icon that deletes on the first click is one
-                        // mis-click wide, and a page without JavaScript has
+                        // mis-click wide, and a page that must work without
+                        // JavaScript has
                         // no `confirm()` to catch it. The GET changes
                         // nothing; the button on the page it leads to does.
                         a class="danger" href={ "/p/" (post.id) "/delete" }

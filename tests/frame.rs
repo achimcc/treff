@@ -79,7 +79,14 @@ async fn every_answer_carries_the_security_headers() {
             .expect("ascii");
         assert!(csp.contains("default-src 'self'"), "csp: {csp}");
         assert!(!csp.contains("unsafe-inline"), "csp: {csp}");
-        assert!(csp.contains("script-src 'none'"), "csp: {csp}");
+        // ONE SCRIPT, FROM HERE (ADR 0005): `'self'` and nothing else — no
+        // inline, no hash, no other origin.
+        let script = csp
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("script-src"))
+            .unwrap_or_else(|| panic!("no script-src: {csp}"));
+        assert_eq!(script, "script-src 'self'", "csp: {csp}");
         assert!(csp.contains("frame-ancestors 'none'"), "csp: {csp}");
         assert_eq!(
             headers.get("x-content-type-options").expect("nosniff"),
@@ -353,4 +360,70 @@ fn post_from(host: &str, cookie: &str, site: Option<&str>) -> Request<Body> {
         builder = builder.header("sec-fetch-site", site);
     }
     builder.body(Body::from("body=hello")).expect("request")
+}
+
+/// The one script: from its own route, open like the stylesheet (it carries
+/// nothing about anybody), with a validator so a new version is not hidden by
+/// a cache.
+#[tokio::test]
+async fn the_mention_script_is_served_from_its_own_route() {
+    let (_d, app) = setup().await;
+    let response = app
+        .clone()
+        .oneshot(get("forum.example.org", "/assets/mention.js"))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let headers = response.headers().clone();
+    assert_eq!(headers["content-type"], "text/javascript; charset=utf-8");
+    assert_eq!(headers["cache-control"], "no-cache");
+    let etag = headers["etag"].to_str().expect("ascii").to_string();
+
+    let again = app
+        .oneshot(
+            Request::builder()
+                .uri("/assets/mention.js")
+                .header("host", "forum.example.org")
+                .header("if-none-match", &etag)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(again.status(), StatusCode::NOT_MODIFIED);
+}
+
+/// The page loads it, and loads nothing else: no inline script, no event
+/// attribute. Everything the page does still works without it.
+#[tokio::test]
+async fn a_page_loads_the_script_and_no_inline_code() {
+    let (dir, db, app) = common::setup_with_db().await;
+    let cookie = common::signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header("host", "forum.example.org")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let html = common::body_of(response).await;
+    assert!(
+        html.contains(r#"<script src="/assets/mention.js" defer></script>"#),
+        "{html}"
+    );
+    assert_eq!(html.matches("<script").count(), 1, "{html}");
+    let lower = html.to_lowercase();
+    for attribute in [
+        " onclick=",
+        " onload=",
+        " oninput=",
+        " onkeydown=",
+        " onerror=",
+    ] {
+        assert!(!lower.contains(attribute), "{attribute} in {html}");
+    }
 }

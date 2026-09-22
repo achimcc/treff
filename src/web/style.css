@@ -121,8 +121,8 @@ header .home {
     text-shadow: 0 0 24px hsl(150 90% 55% / .30);
 }
 
-/* The cursor is CSS, not script: there is no script on any page here, and a
-   blinking block is not worth becoming the first exception. */
+/* The cursor is CSS, not script: the one script here completes @handle
+   (ADR 0005), and a blinking block is not worth a second. */
 .cursor {
     display: inline-block;
     width: .58em;

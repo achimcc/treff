@@ -18,10 +18,11 @@ use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar, SameSite};
 use std::path::Path;
 use std::sync::Arc;
 
-/// No inline anything, no third party, nothing framed. The stylesheet is
-/// served as its own route so that `style-src 'self'` can stay honest.
+/// No inline anything, no third party, nothing framed. The stylesheet and the
+/// one script (`mention.js`, ADR 0005) are served as their own routes so that
+/// `style-src 'self'` and `script-src 'self'` can stay honest.
 pub const CSP: &str = "default-src 'self'; img-src 'self'; style-src 'self'; \
-                       script-src 'none'; object-src 'none'; frame-ancestors 'none'; \
+                       script-src 'self'; object-src 'none'; frame-ancestors 'none'; \
                        base-uri 'none'; form-action 'self'";
 
 pub const SESSION_COOKIE: &str = "treff_session";
@@ -1362,6 +1363,40 @@ async fn stylesheet(headers: axum::http::HeaderMap) -> Response {
         .into_response()
 }
 
+/// The same validator as the stylesheet's, for the same reason.
+static SCRIPT_ETAG: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    crate::web::views::MENTION_SCRIPT.hash(&mut hasher);
+    format!("\"{:016x}\"", hasher.finish())
+});
+
+/// `mention.js` — open like the stylesheet: it is the same file for everyone
+/// and carries nothing about anybody. What it asks for (`/mentionable`) is
+/// behind the session gate.
+async fn mention_script(headers: axum::http::HeaderMap) -> Response {
+    let known = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == SCRIPT_ETAG.as_str());
+    if known {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [(header::ETAG, SCRIPT_ETAG.as_str())],
+        )
+            .into_response();
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+            (header::ETAG, SCRIPT_ETAG.as_str()),
+        ],
+        crate::web::views::MENTION_SCRIPT,
+    )
+        .into_response()
+}
+
 pub fn router(state: AppState) -> Router {
     use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -1398,6 +1433,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/a/{id}", get(serve_attachment))
         .route("/assets/style.css", get(stylesheet))
+        .route("/assets/mention.js", get(mention_script))
         .route("/auth/login", get(login))
         .route("/u/{id}/{token}", get(unsubscribe_page))
         .route("/u/{id}/{token}", axum::routing::post(unsubscribe_now))

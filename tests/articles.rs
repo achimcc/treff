@@ -93,8 +93,11 @@ async fn a_mirrored_article_is_an_ordinary_page() {
         html.contains("<strong>new</strong>"),
         "the article body is not rendered: {html}"
     );
+    // The page's own script (ADR 0005) aside, nothing may run: an article is
+    // not more trusted for coming from a file.
+    let without_ours = html.replace(r#"<script src="/assets/mention.js" defer></script>"#, "");
     assert!(
-        !html.contains("<script"),
+        !without_ours.contains("<script"),
         "an article is not more trusted for coming from a file: {html}"
     );
     assert!(

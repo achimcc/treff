@@ -13,7 +13,7 @@ typing after the `@`, complete it.*
 | | |
 |---|---|
 | Done | **Task 1** — `GET /mentionable`: who may be offered |
-| Open | **Task 2** — the script's route, the CSP, and the tag on the page |
+| Done | **Task 2** — the script's route, the CSP, and the tag on the page |
 | Open | **Task 3** — `mention.js`: the overlay |
 
 ---
@@ -33,22 +33,25 @@ typing after the `@`, complete it.*
       or 403.
 - [x] Tests: a reader is listed; somebody without the groups is not; an
       account without a handle is not; the answer carries no subject and no
-      address; a person who may not read the space gets 403; the other space
-      lists by its own groups.
+      address; a person who may not read the space gets 403. (Not tested: a
+      second space with other groups — the test configuration gives both
+      spaces the same readers, and the rule is `may_read`, tested in `authz`.)
 
 ## Task 2 · The script's route, the CSP, and the tag on the page
 
 **Files:** `src/web/mod.rs`, `src/web/views.rs`, `src/web/mention.js` (new,
-empty at first), `tests/frame.rs`
+empty at first), `tests/frame.rs`, and the two tests that had the old rule written into
+them (`tests/reading.rs`, `tests/articles.rs`): they now allow exactly the
+one tag the layout writes
 
-- [ ] `/assets/mention.js`, served like `/assets/style.css` (same caching and
+- [x] `/assets/mention.js`, served like `/assets/style.css` (same caching and
       `ETag` scheme), `Content-Type: text/javascript; charset=utf-8`.
-- [ ] CSP: `script-src 'self'`, nothing more. Test that `'unsafe-inline'`
+- [x] CSP: `script-src 'self'`, nothing more. Test that `'unsafe-inline'`
       and every foreign origin stay absent.
-- [ ] `<script src="/assets/mention.js" defer>` in the signed-in layout only
+- [x] `<script src="/assets/mention.js" defer>` in the signed-in layout only
       (not on the bare unsubscribe pages). Test: no inline `<script>` with a
       body, and no `on…=` attribute on any page.
-- [ ] Every comment that says "no script on any page" says what is true now.
+- [x] Every comment that says "no script on any page" says what is true now.
 
 ## Task 3 · `mention.js`: the overlay
 
