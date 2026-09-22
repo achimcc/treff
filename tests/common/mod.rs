@@ -44,6 +44,11 @@ home  = "https://example.org"
   title = "Off topic"
   post  = ["Household", "Friends"]
   reply = ["Household", "Friends"]
+
+# Events from elsewhere ring the forum's bell, and may link to one host.
+[events]
+space      = "forum.example.org"
+link_hosts = ["jellyfin.example.org"]
 "#;
 
 /// A router backed by a fresh database in a temporary directory. The directory

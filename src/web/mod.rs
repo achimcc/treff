@@ -738,6 +738,25 @@ async fn set_mention_mail(
     }
 }
 
+/// Following an event: read, then on — to the link that was checked when the
+/// event came in (`db::events::checked`), never to one from this request.
+async fn open_event(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    match crate::db::events::open(&app.db, &who.subject, &space.host, id).await {
+        Ok(Some(Some(link))) => Redirect::to(&link).into_response(),
+        Ok(Some(None)) => Redirect::to("/notifications").into_response(),
+        Ok(None) => not_found(),
+        Err(e) => server_error("cannot open an event", &e),
+    }
+}
+
 async fn read_all(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
@@ -1410,6 +1429,7 @@ pub fn router(state: AppState) -> Router {
         .route("/search", get(search_page))
         .route("/notifications", get(notifications))
         .route("/notifications/read", axum::routing::post(read_all))
+        .route("/notifications/e/{id}", get(open_event))
         .route("/mentionable", get(mentionable))
         .route(
             "/notifications/mention-mail",

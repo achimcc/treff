@@ -21,6 +21,8 @@ pub enum ConfigError {
     InvalidSlug { space: String, slug: String },
     #[error("no time zone is called {0:?}")]
     UnknownTimeZone(String),
+    #[error("[events] names the space {0}, which is not configured")]
+    EventsSpaceUnknown(String),
 }
 
 /// A slug becomes a path segment (`/c/<slug>`), so it is held to the strict
@@ -120,6 +122,23 @@ pub struct Config {
     pub timezone: Option<String>,
     #[serde(rename = "space", default)]
     pub spaces: Vec<Space>,
+    /// Events from other services — a film request that became available,
+    /// say — and where they show up. Left out, nothing is taken in.
+    #[serde(default)]
+    pub events: Option<Events>,
+}
+
+/// Where events from elsewhere belong (plan-stage-5, ADR 0006).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Events {
+    /// The one space whose bell they ring. Must be configured.
+    pub space: String,
+    /// The only hosts an event may link to. An event is somebody else's data
+    /// and its link is followed from our page, so this is an allow list and
+    /// empty means: no link is accepted.
+    #[serde(default)]
+    pub link_hosts: Vec<String>,
 }
 
 /// The `Host` header carries case and a possible port; neither means anything
@@ -144,6 +163,15 @@ impl Config {
 
         for s in &mut c.spaces {
             s.host = normalise(&s.host);
+        }
+        if let Some(events) = c.events.as_mut() {
+            events.space = normalise(&events.space);
+            for h in &mut events.link_hosts {
+                *h = h.to_ascii_lowercase();
+            }
+            if !c.spaces.iter().any(|s| s.host == events.space) {
+                return Err(ConfigError::EventsSpaceUnknown(events.space.clone()));
+            }
         }
 
         let mut hosts = HashSet::new();
@@ -249,6 +277,27 @@ read  = ["Household", "Friends"]
             blog.category("notes").expect("category").post,
             vec!["Writers"]
         );
+    }
+
+    /// Events from elsewhere belong to ONE space, which has to exist — an
+    /// event nobody can see is lost, and it would be lost quietly.
+    #[test]
+    fn the_events_space_must_be_a_space() {
+        let with = format!(
+            "{EXAMPLE}\n[events]\nspace = \"BLOG.example.org\"\nlink_hosts = [\"Jellyfin.Example.org\"]\n"
+        );
+        let c = Config::parse(&with).expect("valid");
+        let events = c.events.as_ref().expect("events");
+        assert_eq!(events.space, "blog.example.org", "normalised like a host");
+        assert_eq!(events.link_hosts, vec!["jellyfin.example.org"]);
+
+        let wrong = format!("{EXAMPLE}\n[events]\nspace = \"nowhere.example.org\"\n");
+        assert!(matches!(
+            Config::parse(&wrong),
+            Err(ConfigError::EventsSpaceUnknown(h)) if h == "nowhere.example.org"
+        ));
+
+        assert!(Config::parse(EXAMPLE).expect("valid").events.is_none());
     }
 
     #[test]

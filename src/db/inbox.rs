@@ -28,6 +28,16 @@ pub enum Entry {
         first_post_id: i64,
         unread: bool,
     },
+    /// Something happened elsewhere for this person — a film request came
+    /// through or failed (`db::events`).
+    Event {
+        id: i64,
+        kind: crate::db::events::Kind,
+        title: String,
+        reason: Option<String>,
+        at: i64,
+        unread: bool,
+    },
     /// Somebody wrote `@handle` for this person.
     Mention {
         topic_id: i64,
@@ -42,14 +52,16 @@ pub enum Entry {
 impl Entry {
     pub fn unread(&self) -> bool {
         match self {
-            Entry::Replies { unread, .. } | Entry::Mention { unread, .. } => *unread,
+            Entry::Replies { unread, .. }
+            | Entry::Mention { unread, .. }
+            | Entry::Event { unread, .. } => *unread,
         }
     }
 
     pub fn at(&self) -> i64 {
         match self {
             Entry::Replies { latest_at, .. } => *latest_at,
-            Entry::Mention { at, .. } => *at,
+            Entry::Mention { at, .. } | Entry::Event { at, .. } => *at,
         }
     }
 }
@@ -129,11 +141,17 @@ pub async fn note_mentions_in(
 pub async fn unread_count(db: &Db, subject: &str, space: &str) -> anyhow::Result<i64> {
     // `hidden = 0` like every list: a withdrawn article is not something to
     // be called back to.
+    //
+    // Events are counted by the HANDLE of this account: they were stored for
+    // a handle, possibly before the account existed (`db::events`).
     Ok(sqlx::query_scalar(
-        "SELECT count(DISTINCT CASE WHEN i.reason = 'reply' THEN i.topic_id END)
-              + count(CASE WHEN i.reason = 'mention' THEN 1 END)
-           FROM inbox i JOIN topics t ON t.id = i.topic_id
-          WHERE i.subject = ? AND i.space = ? AND i.read_at IS NULL AND t.hidden = 0",
+        "SELECT (SELECT count(DISTINCT CASE WHEN i.reason = 'reply' THEN i.topic_id END)
+                      + count(CASE WHEN i.reason = 'mention' THEN 1 END)
+                   FROM inbox i JOIN topics t ON t.id = i.topic_id
+                  WHERE i.subject = ?1 AND i.space = ?2 AND i.read_at IS NULL AND t.hidden = 0)
+              + (SELECT count(*) FROM events e
+                  WHERE e.handle = (SELECT handle FROM accounts WHERE subject = ?1)
+                    AND e.space = ?2 AND e.read_at IS NULL)",
     )
     .bind(subject)
     .bind(space)
@@ -189,6 +207,20 @@ pub async fn entries(
     .fetch_all(db.pool())
     .await?;
 
+    let events = sqlx::query(
+        "SELECT id, kind, title, reason, created_at, (read_at IS NULL) AS unread
+           FROM events
+          WHERE handle = (SELECT handle FROM accounts WHERE subject = ?)
+            AND space = ?
+          ORDER BY unread DESC, created_at DESC
+          LIMIT ?",
+    )
+    .bind(subject)
+    .bind(space)
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await?;
+
     let mut out: Vec<Entry> = bundles
         .iter()
         .map(|r| Entry::Replies {
@@ -207,6 +239,20 @@ pub async fn entries(
             author: r.get("author"),
             at: r.get("at"),
             unread: r.get::<i64, _>("unread") != 0,
+        }))
+        .chain(events.iter().filter_map(|r| {
+            // A kind this version does not know is left out rather than
+            // shown as something it is not (the CHECK in the table makes it
+            // impossible today; a downgrade would not).
+            let kind = crate::db::events::Kind::parse(r.get("kind"))?;
+            Some(Entry::Event {
+                id: r.get("id"),
+                kind,
+                title: r.get("title"),
+                reason: r.get("reason"),
+                at: r.get("created_at"),
+                unread: r.get::<i64, _>("unread") != 0,
+            })
         }))
         .collect();
     out.sort_by(|a, b| b.unread().cmp(&a.unread()).then(b.at().cmp(&a.at())));
@@ -228,12 +274,23 @@ pub async fn mark_topic_read(db: &Db, subject: &str, topic_id: i64) -> anyhow::R
 }
 
 pub async fn mark_all_read(db: &Db, subject: &str, space: &str) -> anyhow::Result<()> {
+    let now = crate::db::topics::now();
     sqlx::query("UPDATE inbox SET read_at = ? WHERE subject = ? AND space = ? AND read_at IS NULL")
-        .bind(crate::db::topics::now())
+        .bind(now)
         .bind(subject)
         .bind(space)
         .execute(db.pool())
         .await?;
+    sqlx::query(
+        "UPDATE events SET read_at = ?
+          WHERE handle = (SELECT handle FROM accounts WHERE subject = ?)
+            AND space = ? AND read_at IS NULL",
+    )
+    .bind(now)
+    .bind(subject)
+    .bind(space)
+    .execute(db.pool())
+    .await?;
     Ok(())
 }
 

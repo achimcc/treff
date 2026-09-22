@@ -707,6 +707,27 @@ pub fn notifications_page(
                                     (moment(*latest_at))
                                 }
                             }
+                            Entry::Event { id, kind, title, reason, at, .. } => {
+                                // Through treff, which marks it read and then
+                                // leads on to the link it checked on arrival.
+                                a href={ "/notifications/e/" (id) } {
+                                    @match kind {
+                                        crate::db::events::Kind::FilmAvailable => {
+                                            "🎬 " b { (title) } " " (lang.t("film_available"))
+                                        }
+                                        crate::db::events::Kind::FilmFailed => {
+                                            b { (title) } " " (lang.t("film_failed"))
+                                        }
+                                    }
+                                }
+                                span class="byline" {
+                                    @if let Some(reason) = reason {
+                                        (reason)
+                                        span class="sep" { " · " }
+                                    }
+                                    (moment(*at))
+                                }
+                            }
                             Entry::Mention { topic_id, topic_title, post_id, author, at, .. } => {
                                 a href={ "/t/" (topic_id) "#p" (post_id) } {
                                     span class="name" { (author) } " "
