@@ -2,6 +2,7 @@
 //! a pool.
 
 pub mod attachments;
+pub mod inbox;
 pub mod outbox;
 pub mod search;
 pub mod subscriptions;

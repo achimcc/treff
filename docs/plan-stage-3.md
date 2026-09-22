@@ -12,7 +12,7 @@ stage is called done.
 | | |
 |---|---|
 | Done | **Task 1** — a handle and the groups on the account |
-| Open | **Task 2** — the inbox, filled by replies |
+| Done | **Task 2** — the inbox, filled by replies |
 | Open | **Task 3** — the bell and `/notifications` |
 | Open | **Task 4** — `@handle`: found, checked, noted, highlighted |
 | Open | **Task 5** — the mention mail, and its way out |
@@ -21,7 +21,7 @@ stage is called done.
 
 ## Task 1 · A handle and the groups on the account
 
-**Files:** `migrations/0009_inbox.sql` (this task's half), `src/authz.rs`,
+**Files:** `migrations/0009_handles.sql`, `src/authz.rs`,
 `src/auth/mod.rs`, `src/auth/oidc.rs`, every `Identity { … }` literal,
 `tests/common/mod.rs`
 
@@ -34,8 +34,8 @@ stage is called done.
       that function (it already reads the claim for the name fallback; the
       payload `extra` carries it).
 - [x] Migration: `accounts` gains `handle TEXT`, `groups_json TEXT NOT NULL
-      DEFAULT '[]'`, `mention_mail INTEGER NOT NULL DEFAULT 1`, and a unique
-      index on `handle` where it is not null.
+      DEFAULT '[]'`, and a unique index on `handle` where it is not null.
+      (`mention_mail` belongs to task 5 and comes with it.)
 - [x] `Sessions::create` writes handle and groups on every sign-in. A handle
       that another account already holds is written as `NULL` for the
       newcomer rather than failing the sign-in — a sign-in must not break over
@@ -49,15 +49,15 @@ unit tests for the claim are red-then-green.
 
 ## Task 2 · The inbox, filled by replies
 
-**Files:** `migrations/0009_inbox.sql`, `src/db/inbox.rs` (new),
+**Files:** `migrations/0010_inbox.sql`, `src/db/inbox.rs` (new),
 `src/db/mod.rs`, `src/db/topics.rs`
 
-- [ ] Table `inbox (subject, space, topic_id, post_id, reason, created_at,
+- [x] Table `inbox (subject, space, topic_id, post_id, reason, created_at,
       read_at)`, primary key `(subject, post_id)`, cascades on topic and post,
       index `(subject, space, read_at)`.
-- [ ] `add_reply` writes one `reply` row per follower except the writer, in
+- [x] `add_reply` writes one `reply` row per follower except the writer, in
       its transaction, `ON CONFLICT DO NOTHING`.
-- [ ] `db::inbox`:
+- [x] `db::inbox`:
   - `unread_count(db, subject, space) -> i64` — unread mentions plus topics
     with unread replies;
   - `entries(db, subject, space, limit) -> Vec<Entry>` — unread first, newest
@@ -65,7 +65,7 @@ unit tests for the claim are red-then-green.
     author, latest time and the first unread post; mentions one by one;
   - `mark_topic_read(db, subject, topic_id)`, `mark_all_read(db, subject,
     space)`.
-- [ ] Tests in the module: no row for the writer; three replies in one topic
+- [x] Tests in the module: no row for the writer; three replies in one topic
       are one bundle of three; two topics are two bundles; marking a topic
       read empties its bundle and not the other; the space is part of every
       query.
@@ -126,7 +126,8 @@ unit tests for the claim are red-then-green.
 
 ## Task 5 · The mention mail, and its way out
 
-**Files:** `migrations/0009_inbox.sql` (`outbox.reason`), `src/db/outbox.rs`,
+**Files:** `migrations/0011_mention_mail.sql` (`outbox.reason`,
+`accounts.mention_mail`), `src/db/outbox.rs`,
 `src/notify/mod.rs`, `src/notify/mail.rs`, `src/web/mod.rs`,
 `src/web/views.rs`, `i18n/*.toml`, `tests/notifying.rs`, `tests/mentions.rs`
 

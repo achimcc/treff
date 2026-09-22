@@ -169,6 +169,9 @@ pub async fn add_reply(
         .fetch_one(&mut *tx)
         .await?;
     crate::db::outbox::queue_for_followers(&mut tx, &space, topic_id, id, &author.subject).await?;
+    // And the bell, from the same list of followers in the same transaction —
+    // so the bell and the mail cannot disagree about who was told.
+    crate::db::inbox::note_replies_in(&mut tx, &space, topic_id, id, &author.subject).await?;
 
     tx.commit().await?;
     Ok(id)
