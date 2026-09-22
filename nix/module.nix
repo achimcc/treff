@@ -139,6 +139,12 @@ let
       space = map toToml cfg.spaces;
     }
     // lib.optionalAttrs (cfg.timezone != null) { timezone = cfg.timezone; }
+    // lib.optionalAttrs (cfg.events != null) {
+      events = {
+        inherit (cfg.events) space;
+        link_hosts = cfg.events.linkHosts;
+      };
+    }
   );
 in
 {
@@ -242,6 +248,70 @@ in
           in the clear is not a configuration, it is an accident.
         '';
       };
+    };
+
+    internal = {
+      listen = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "10.0.100.10:8081";
+        description = ''
+          A second listener for other services on the same machine (ADR 0006):
+          `POST /internal/events` takes an event for a person, `GET
+          /internal/bell` and `/internal/bell/stream` answer for a page
+          outside treff. **Never put this behind a public virtual host** —
+          `/internal/bell` believes the `X-Treff-User` header it is given, and
+          only the proxy in front of a page may set it. Null: no listener.
+        '';
+      };
+      eventsTokenFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "%d/events";
+        description = ''
+          A **path** to the bearer token for `POST /internal/events`. Unset,
+          the route does not exist. A string, so `%d` works with
+          `LoadCredential`.
+        '';
+      };
+      bellTokenFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "%d/bell";
+        description = ''
+          A **path** to the bearer token for `/internal/bell` and its stream —
+          a different token from the one for events, so a leak of one does
+          not open the other. Unset, the routes do not exist.
+        '';
+      };
+    };
+
+    events = lib.mkOption {
+      default = null;
+      description = ''
+        Where events from other services show up, and what they may link to.
+        Null: treff takes none in.
+      '';
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            space = lib.mkOption {
+              type = lib.types.str;
+              example = "forum.example.org";
+              description = "The one configured space whose bell events ring.";
+            };
+            linkHosts = lib.mkOption {
+              type = lib.types.listOf lib.types.str;
+              default = [ ];
+              example = [ "jellyfin.example.org" ];
+              description = ''
+                The only hosts an event may link to (`https://` only). Empty:
+                no link is accepted.
+              '';
+            };
+          };
+        }
+      );
     };
 
     webhook = {
@@ -352,6 +422,19 @@ in
         assertion = lib.length (lib.unique (map (s: s.host) cfg.spaces)) == lib.length cfg.spaces;
         message = "two treff spaces share a host.";
       }
+      {
+        # A token for a door that has no listener is a door somebody meant to
+        # open and that stays shut. treff refuses it at startup; the build
+        # refuses first.
+        assertion =
+          cfg.internal.listen != null
+          || (cfg.internal.eventsTokenFile == null && cfg.internal.bellTokenFile == null);
+        message = "services.treff.internal has a token file but no `listen`.";
+      }
+      {
+        assertion = cfg.events == null || lib.any (s: s.host == cfg.events.space) cfg.spaces;
+        message = "services.treff.events.space is not one of services.treff.spaces.";
+      }
     ];
 
     systemd.services.treff = {
@@ -378,6 +461,15 @@ in
       }
       // lib.optionalAttrs (cfg.mail.username != null) {
         TREFF_SMTP_USERNAME = cfg.mail.username;
+      }
+      // lib.optionalAttrs (cfg.internal.listen != null) {
+        TREFF_INTERNAL_LISTEN = cfg.internal.listen;
+      }
+      // lib.optionalAttrs (cfg.internal.eventsTokenFile != null) {
+        TREFF_EVENTS_TOKEN_FILE = cfg.internal.eventsTokenFile;
+      }
+      // lib.optionalAttrs (cfg.internal.bellTokenFile != null) {
+        TREFF_BELL_TOKEN_FILE = cfg.internal.bellTokenFile;
       }
       // lib.optionalAttrs (cfg.webhook.url != null) {
         TREFF_WEBHOOK_URL = cfg.webhook.url;

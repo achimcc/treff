@@ -16,7 +16,7 @@ does this person have?
 | Done | **Task 1** — events: table, intake rules, entries in the bell |
 | Done | **Task 2** — the internal listener: `POST /internal/events`, `GET /internal/bell` |
 | Done | **Task 3** — live: a change signal, two streams, `bell.js` |
-| Open | **Task 4** — the NixOS module, the VM test, ADR 0006 |
+| Done | **Task 4** — the NixOS module, the VM test, ADR 0006 |
 
 ---
 
@@ -114,13 +114,13 @@ does this person have?
 **Files:** `nix/module.nix`, `nix/test.nix`, `docs/decisions/0006-an-internal-door.md`,
 `README.md`
 
-- [ ] `services.treff.internal.{listen,eventsTokenFile,bellTokenFile}` and
+- [x] `services.treff.internal.{listen,eventsTokenFile,bellTokenFile}` and
       `services.treff.events.{space,linkHosts}`, into the environment and the
       TOML. An assertion: a token file without `internal.listen` is a
       mistake.
-- [ ] The VM test starts treff with the internal listener and asks it once
+- [x] The VM test starts treff with the internal listener and asks it once
       for the bell with and without the token.
-- [ ] ADR 0006: the second door, and why it is narrow.
+- [x] ADR 0006: the second door, and why it is narrow.
 
 ## After the stage
 

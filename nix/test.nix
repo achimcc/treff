@@ -44,6 +44,16 @@ pkgs.testers.runNixOSTest {
         inherit package;
         listen = "127.0.0.1:8080";
         timezone = "Europe/Berlin";
+        # The second door, with both tokens as credentials (ADR 0006).
+        internal = {
+          listen = "127.0.0.1:8081";
+          eventsTokenFile = "%d/events";
+          bellTokenFile = "%d/bell";
+        };
+        events = {
+          space = "forum.example.org";
+          linkHosts = [ "jellyfin.example.org" ];
+        };
         oidc = {
           issuer = "https://auth.example.org/application/o/treff/";
           clientId = "treff";
@@ -96,9 +106,13 @@ pkgs.testers.runNixOSTest {
 
       systemd.services.treff.serviceConfig.LoadCredential = [
         "oidc:/etc/treff-secret"
+        "events:/etc/treff-events"
+        "bell:/etc/treff-bell"
       ];
 
       environment.etc."treff-secret".text = "the-client-secret";
+      environment.etc."treff-events".text = "the-events-token";
+      environment.etc."treff-bell".text = "the-bell-token";
       environment.systemPackages = [ pkgs.curl ];
     };
 
@@ -179,5 +193,31 @@ pkgs.testers.runNixOSTest {
                     "--setenv=TREFF_DATA_DIR=/var/lib/treff "
                     "${package}/bin/treff export /tmp/backup.db")
     machine.succeed("test -s /tmp/backup.db")
+
+    # THE SECOND DOOR, on its own port, with its own tokens — measured on the
+    # machine, with the tokens arriving as credentials the way they will in
+    # production.
+    machine.wait_for_open_port(8081)
+    def internal(args):
+        return machine.succeed(
+            f"curl -s -o /dev/null -w '%{{http_code}}' {args}"
+        )
+    bell = "-H 'X-Treff-User: konrad' -H 'X-Treff-Groups: Household' http://127.0.0.1:8081/internal/bell"
+    assert internal(bell) == "401", "the bell answered without a token"
+    assert internal(f"-H 'Authorization: Bearer the-events-token' {bell}") == "401", (
+        "the events token opened the bell"
+    )
+    event = (
+        "-X POST -H 'Content-Type: application/json' "
+        "-H 'Authorization: Bearer the-events-token' "
+        "--data '{\"handle\":\"konrad\",\"kind\":\"film_available\",\"title\":\"Dune\",\"source_key\":\"seerr:1\"}' "
+        "http://127.0.0.1:8081/internal/events"
+    )
+    assert internal(event) == "201", "an event was not taken"
+    assert internal(event) == "200", "the same event was taken twice"
+    answer = machine.succeed(f"curl -s -H 'Authorization: Bearer the-bell-token' {bell}")
+    assert '"unread":1' in answer, f"the bell did not count the event: {answer}"
+    # And the public listener has none of it.
+    assert code("forum.example.org", "/internal/bell") != "200", "the public side answered /internal"
   '';
 }
