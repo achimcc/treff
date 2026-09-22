@@ -56,6 +56,59 @@
     return { at: at, end: end, query: query.toLowerCase() };
   }
 
+  // WHERE the `@` sits inside the field, in pixels from the field's own
+  // upper left corner — so the list opens under the character somebody just
+  // typed and not under the whole box (Achim, 2026-09-22).
+  //
+  // A textarea offers no such measurement: it has a caret and no way to ask
+  // where it is. So the text up to the `@` is laid out A SECOND TIME in a
+  // hidden element with the same typography and the same width, and the
+  // marker at its end is measured. The copied properties are the ones that
+  // move a line break: everything about the font, the padding, the border and
+  // the wrapping. Miss one and the mirror wraps elsewhere than the field.
+  var MIRRORED = [
+    "fontFamily", "fontSize", "fontWeight", "fontStyle", "fontVariant",
+    "letterSpacing", "lineHeight", "textTransform", "textIndent",
+    "wordSpacing", "tabSize", "whiteSpace", "wordBreak", "overflowWrap",
+    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+    "borderTopWidth", "borderRightWidth", "borderBottomWidth",
+    "borderLeftWidth",
+  ];
+
+  function caretSpot(field, index) {
+    var host = field.parentNode;
+    if (!host || !field.offsetParent) return null;
+    var style = window.getComputedStyle(field);
+    var mirror = document.createElement("div");
+    for (var k = 0; k < MIRRORED.length; k++) {
+      mirror.style[MIRRORED[k]] = style[MIRRORED[k]];
+    }
+    mirror.style.position = "absolute";
+    mirror.style.visibility = "hidden";
+    mirror.style.boxSizing = "border-box";
+    mirror.style.width = field.offsetWidth + "px";
+    mirror.style.height = "auto";
+    mirror.style.top = "0";
+    mirror.style.left = "0";
+    // A textarea wraps and keeps its spaces whatever `white-space` says.
+    mirror.style.whiteSpace = "pre-wrap";
+    mirror.style.overflowWrap = "break-word";
+    mirror.textContent = field.value.slice(0, index);
+    var marker = document.createElement("span");
+    // Not empty: a zero-width box has no place on a line of its own.
+    marker.textContent = "@";
+    mirror.appendChild(marker);
+    host.appendChild(mirror);
+    var line = parseFloat(style.lineHeight);
+    if (!(line > 0)) line = parseFloat(style.fontSize) * 1.2;
+    var spot = {
+      top: field.offsetTop + marker.offsetTop - field.scrollTop + line,
+      left: field.offsetLeft + marker.offsetLeft - field.scrollLeft,
+    };
+    host.removeChild(mirror);
+    return spot;
+  }
+
   // Beginning of the handle, or of any word of the name.
   function matches(person, query) {
     if (query === "") return true;
@@ -92,6 +145,8 @@
 
     function close() {
       box.hidden = true;
+      box.style.removeProperty("--at-top");
+      box.style.removeProperty("--at-left");
       shown = [];
       spot = null;
       field.setAttribute("aria-expanded", "false");
@@ -144,6 +199,18 @@
         });
         box.appendChild(item);
       });
+      // Unter das `@`, nicht unter das Feld. Nur die zwei gemessenen Zahlen
+      // gehen ins Element; die Regel, was damit geschieht, steht im
+      // Stylesheet (`--at-top`/`--at-left`, mit dem alten Verhalten als
+      // Rueckfall). Misslingt die Messung, bleibt es beim Rueckfall.
+      var at = spot ? caretSpot(field, spot.at) : null;
+      if (at) {
+        box.style.setProperty("--at-top", at.top + "px");
+        box.style.setProperty("--at-left", at.left + "px");
+      } else {
+        box.style.removeProperty("--at-top");
+        box.style.removeProperty("--at-left");
+      }
       box.hidden = false;
       field.setAttribute("aria-expanded", "true");
       highlight(0);

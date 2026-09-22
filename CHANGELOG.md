@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.1 — 2026-09-22
+
+- **The `@` list opens under the `@`**, not under the whole field. It followed
+  the field's lower edge before, which on a tall reply box put it a long way
+  from the character just typed.
+
+  A textarea has a caret and no way to ask where it is, so the text up to the
+  `@` is laid out a second time in a hidden element with the same typography
+  and width, and the marker at its end is measured. The script writes only the
+  two measured numbers onto the element (`--at-top`, `--at-left`); what
+  happens with them stays in the stylesheet, and the fallback is the old
+  behaviour — for the moment before the first measurement, and for a field
+  that cannot be measured.
+
 ## 0.8.0 — 2026-09-22
 
 treff knows everybody the identity provider knows, whether or not they have

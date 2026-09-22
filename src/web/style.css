@@ -805,14 +805,20 @@ header nav .bell:hover { color: var(--on); }
 
 /* --- Completing @handle (mention.js, ADR 0005) ------------------------- */
 
-/* The list hangs under the field it completes. `.mention-host` is a frame the
-   script puts around the field, so without the script nothing here applies. */
+/* The list hangs under the `@` it completes. `.mention-host` is a frame the
+   script puts around the field, so without the script nothing here applies.
+
+   The two custom properties are the only thing the script writes on the
+   element, and they are MEASUREMENTS, not rules: where the caret sits inside
+   the field. The fallbacks are the old behaviour — under the whole field —
+   for the moment before the first measurement and for a field the script
+   cannot measure. */
 .mention-host { position: relative; display: block; }
 
 .mention-list {
     position: absolute;
-    top: 100%;
-    left: 0;
+    top: var(--at-top, 100%);
+    left: var(--at-left, 0);
     z-index: 10;
     min-width: 16rem;
     max-width: 100%;

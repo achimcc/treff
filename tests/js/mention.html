@@ -22,7 +22,7 @@
 </script>
 <script src="/src/web/mention.js"></script>
 </head><body>
-<form><textarea id="t"></textarea></form>
+<form><textarea id="t" rows="6" cols="40"></textarea></form>
 <pre id="out"></pre>
 <script>
   var results = {};
@@ -70,6 +70,25 @@
     if (first) first.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     await tick();
     results.click_takes = t.value;
+
+    // WO die Liste aufgeht, nicht nur DASS sie aufgeht (Achim, 2026-09-22:
+    // „die soll direkt unter dem @ zeichen aufgehen"). Gemessen wird nicht in
+    // Pixeln — die haengen an der Schrift der Maschine —, sondern als
+    // Verhaeltnis: weiter unten, wenn das `@` eine Zeile tiefer steht, und
+    // weiter rechts, wenn Text davor steht.
+    function at(name) {
+      var b = box();
+      var v = b && b.style.getPropertyValue(name);
+      return v ? parseFloat(v) : null;
+    }
+    type("@"); await tick();
+    var top0 = at("--at-top"), left0 = at("--at-left");
+    type("eins\nzwei\ndrei @"); await tick();
+    var top2 = at("--at-top"), left2 = at("--at-left");
+    results.opens_at_the_caret = top0 !== null && left0 !== null;
+    results.follows_the_caret_down = top2 !== null && top0 !== null && top2 > top0;
+    results.follows_the_caret_right = left2 !== null && left0 !== null && left2 > left0;
+    // Und der Rueckfall bleibt: ohne Messung haengt sie unter dem Feld.
     results.fetches = asked;
     document.getElementById("out").textContent = JSON.stringify(results);
   })();

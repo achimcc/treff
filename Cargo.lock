@@ -3772,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "treff"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ammonia",
  "anyhow",
