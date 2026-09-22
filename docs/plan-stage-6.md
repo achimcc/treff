@@ -25,7 +25,7 @@ treff sees as `sub`.
 | Done | **Task 1** — the `@` list leaves out whoever is writing |
 | Done | **Task 2** — the directory: accounts and groups from SCIM, in the database |
 | Done | **Task 3** — `/scim/v2`: the routes Authentik calls, on the internal listener |
-| Open | **Task 4** — module option, VM test, ADR 0007 |
+| Done | **Task 4** — module option, VM test, ADR 0007 |
 
 ---
 
@@ -99,4 +99,23 @@ answer for the person it was looking for.
 
 ## After the stage
 
-- [ ] `nix flake check`, version `0.8.0`, CHANGELOG, README.
+- [x] `nix flake check`, version `0.8.0`, CHANGELOG, README. Released and in
+      service since 2026-09-22 (homeserver generation 1007): 14 accounts in
+      treff instead of 6, all with a handle and a group — and the six that
+      existed are the SAME rows, matched by UUID.
+
+## After that, straight away — 0.8.1
+
+The evening it went live, the first thing anybody noticed was not the names
+but WHERE they appeared: *„sie geht auf, aber unter der textbox für die
+antwort, die soll direkt unter dem @ zeichen aufgehen."*
+
+- [x] The `@` list opens under the `@`. A textarea has a caret and no way to
+      ask where it is, so the text up to the `@` is laid out a second time in
+      a hidden element with the same typography and width, and the marker at
+      its end is measured. Only the two measured numbers go on the element
+      (`--at-top`, `--at-left`); the rule stays in the stylesheet, with the
+      old behaviour as its fallback.
+- [x] Measured in headless Chrome as RATIOS, not pixels — those hang on the
+      machine's fonts: the list moves down when the `@` is a line lower, and
+      right when text stands before it.
