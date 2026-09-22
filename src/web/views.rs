@@ -16,9 +16,11 @@ use maud::{DOCTYPE, Markup, PreEscaped, html};
 /// `style-src 'self'` in the CSP stays true.
 pub const STYLESHEET: &str = include_str!("style.css");
 
-/// The one script, served as its own route like the stylesheet, so that
-/// `script-src 'self'` is the whole of what the CSP allows.
+/// The scripts, served as their own routes like the stylesheet, so that
+/// `script-src 'self'` is the whole of what the CSP allows. Nothing depends on
+/// either (ADR 0005).
 pub const MENTION_SCRIPT: &str = include_str!("mention.js");
+pub const BELL_SCRIPT: &str = include_str!("bell.js");
 
 /// What the header needs to know about the person looking, beyond who they
 /// are: how many things wait for them. Counted by the handler AFTER it has
@@ -63,6 +65,8 @@ pub fn layout_with_search(
                 // it up. Only in the signed-in layout: the bare pages have no
                 // text field to complete, and no session to ask with.
                 script src="/assets/mention.js" defer {}
+                // The bell's overlay and its live number (ADR 0005, amended).
+                script src="/assets/bell.js" defer {}
             }
             body {
                 header {
@@ -95,12 +99,31 @@ pub fn layout_with_search(
                                 // fuehrt. Das `../` davor setzt das Stylesheet.
                                 a class="up" href=(home) { (host_of(home)) }
                             }
-                            // A LINK, not a menu: nothing on the page depends
-                            // on script (ADR 0005), and the list behind it is
-                            // a page of its own. The
-                            // number only when there is one — a bell that
+                            // A LINK, and with `bell.js` an overlay: the script
+                            // opens the list in place and keeps the number
+                            // live; without it this is the way to the page.
+                            // Everything the script needs is on the element —
+                            // where to listen, where to ask, and its words in
+                            // this page's language — so the same file can
+                            // serve a page that is not treff's (the start
+                            // page), and it carries no translation of its own.
+                            // The number only when there is one — a bell that
                             // always says 0 is one people stop looking at.
                             a class="bell" href="/notifications"
+                              data-stream="/notifications/stream"
+                              data-json="/notifications.json"
+                              data-t-title=(lang.t("notifications"))
+                              data-t-all=(lang.t("all_notifications"))
+                              data-t-nothing=(lang.t("nothing_new_short"))
+                              data-t-new-reply-in=(lang.t("new_reply_in"))
+                              data-t-new-replies-in=(lang.t("new_replies_in"))
+                              data-t-reply-in=(lang.t("reply_in"))
+                              data-t-replies-in=(lang.t("replies_in"))
+                              data-t-latest-from=(lang.t("latest_from"))
+                              data-t-mentioned-you-in=(lang.t("mentioned_you_in"))
+                              data-t-film-available=(lang.t("film_available"))
+                              data-t-film-failed=(lang.t("film_failed"))
+                              data-t-unread=(lang.t("unread"))
                               aria-label=(bell_label(lang, bell)) title=(bell_label(lang, bell)) {
                                 (icon_bell())
                                 @if bell.unread > 0 {
@@ -150,7 +173,7 @@ fn bell_label(lang: Lang, bell: Bell) -> String {
 /// of it.
 fn icon_bell() -> Markup {
     html! {
-        svg class="icon" viewBox="0 0 16 16" width="15" height="15"
+        svg class="icon" viewBox="0 0 16 16" width="19" height="19"
             aria-hidden="true" focusable="false" {
             path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.3 1.3H2.7zM6.6 13.8a1.5 1.5 0 0 0 2.8 0"
                  fill="none" stroke="currentColor" stroke-width="1.3"

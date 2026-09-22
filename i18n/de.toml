@@ -58,3 +58,5 @@ mention_mail_is_on            = "Erwaehnt dich jemand mit @, bekommst du eine Ma
 mention_mail_is_off           = "Erwaehnungen siehst du nur hier, ohne Mail."
 film_available                = "ist da"
 film_failed                   = "konnte nicht besorgt werden"
+all_notifications             = "Alle Benachrichtigungen"
+nothing_new_short             = "Nichts Neues."

@@ -255,12 +255,16 @@ async fn no_page_carries_a_script_element_but_its_own() {
             .await
             .expect("response");
         let html = body_of(response).await;
-        let ours = r#"<script src="/assets/mention.js" defer></script>"#;
-        assert_eq!(html.matches(ours).count(), 1, "{uri}: {html}");
-        assert!(
-            !html.replace(ours, "").contains("<script"),
-            "{uri} carried a script: {html}"
-        );
+        let ours = [
+            r#"<script src="/assets/mention.js" defer></script>"#,
+            r#"<script src="/assets/bell.js" defer></script>"#,
+        ];
+        let mut rest = html.clone();
+        for tag in ours {
+            assert_eq!(html.matches(tag).count(), 1, "{uri}: {html}");
+            rest = rest.replace(tag, "");
+        }
+        assert!(!rest.contains("<script"), "{uri} carried a script: {html}");
     }
 }
 

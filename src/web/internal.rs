@@ -254,62 +254,9 @@ pub async fn bell_for(
     let (unread, entries) =
         crate::db::inbox::for_handle(&state.db, &handle, &space.host, BELL_ENTRIES).await?;
     let base = format!("https://{}", space.host);
-    let entries: Vec<serde_json::Value> = entries.iter().map(|e| entry_json(e, &base)).collect();
+    let entries: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| crate::live::entry_json(e, &base))
+        .collect();
     Ok(serde_json::json!({ "unread": unread, "entries": entries }))
-}
-
-/// One entry as the start page draws it. Words are the page's business; this
-/// carries the facts and a link that leads through the forum, where reading
-/// marks things read.
-fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Value {
-    use crate::db::inbox::Entry;
-    match entry {
-        Entry::Replies {
-            topic_id,
-            topic_title,
-            count,
-            latest_author,
-            latest_at,
-            first_post_id,
-            unread,
-        } => serde_json::json!({
-            "kind": "replies",
-            "title": topic_title,
-            "count": count,
-            "author": latest_author,
-            "at": latest_at,
-            "unread": unread,
-            "link": format!("{base}/t/{topic_id}#p{first_post_id}"),
-        }),
-        Entry::Mention {
-            topic_id,
-            topic_title,
-            post_id,
-            author,
-            at,
-            unread,
-        } => serde_json::json!({
-            "kind": "mention",
-            "title": topic_title,
-            "author": author,
-            "at": at,
-            "unread": unread,
-            "link": format!("{base}/t/{topic_id}#p{post_id}"),
-        }),
-        Entry::Event {
-            id,
-            kind,
-            title,
-            reason,
-            at,
-            unread,
-        } => serde_json::json!({
-            "kind": kind.as_str(),
-            "title": title,
-            "reason": reason,
-            "at": at,
-            "unread": unread,
-            "link": format!("{base}/notifications/e/{id}"),
-        }),
-    }
 }

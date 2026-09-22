@@ -739,6 +739,26 @@ async fn set_mention_mail(
     }
 }
 
+/// How many entries the overlay under the bell shows. The rest is one click
+/// further, on `/notifications`.
+const OVERLAY_ENTRIES: i64 = 12;
+
+/// The overlay's contents without a stream — for a browser whose stream did
+/// not come up.
+async fn notifications_json(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    match crate::live::bell_json(&app.db, &who.subject, &space.host, "", OVERLAY_ENTRIES).await {
+        Ok(body) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(body)).into_response(),
+        Err(e) => server_error("cannot read the bell", &e),
+    }
+}
+
 /// The bell in the header, live (`bell.js`). The person is the one this
 /// stream was opened by; a session that ends while it is open is noticed at
 /// the next reconnect, like everywhere else a page stays open.
@@ -757,10 +777,7 @@ async fn notifications_stream(
         let db = db.clone();
         let host = host.clone();
         let subject = subject.clone();
-        async move {
-            let unread = crate::db::inbox::unread_count(&db, &subject, &host).await?;
-            Ok(serde_json::json!({ "unread": unread }))
-        }
+        async move { crate::live::bell_json(&db, &subject, &host, "", OVERLAY_ENTRIES).await }
     });
     ([(header::CACHE_CONTROL, "no-store")], stream).into_response()
 }
@@ -1409,6 +1426,39 @@ async fn stylesheet(headers: axum::http::HeaderMap) -> Response {
         .into_response()
 }
 
+/// The validator of `bell.js`, like every asset's.
+static BELL_ETAG: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    crate::web::views::BELL_SCRIPT.hash(&mut hasher);
+    format!("\"{:016x}\"", hasher.finish())
+});
+
+async fn bell_script(headers: axum::http::HeaderMap) -> Response {
+    script(&headers, BELL_ETAG.as_str(), crate::web::views::BELL_SCRIPT)
+}
+
+/// One script from its own route: `no-cache` and a validator, so a new
+/// version is not hidden by a cache.
+fn script(headers: &axum::http::HeaderMap, etag: &'static str, body: &'static str) -> Response {
+    let known = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == etag);
+    if known {
+        return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response();
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+            (header::ETAG, etag),
+        ],
+        body,
+    )
+        .into_response()
+}
+
 /// The same validator as the stylesheet's, for the same reason.
 static SCRIPT_ETAG: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     use std::hash::{Hash, Hasher};
@@ -1421,26 +1471,11 @@ static SCRIPT_ETAG: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 /// and carries nothing about anybody. What it asks for (`/mentionable`) is
 /// behind the session gate.
 async fn mention_script(headers: axum::http::HeaderMap) -> Response {
-    let known = headers
-        .get(header::IF_NONE_MATCH)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v == SCRIPT_ETAG.as_str());
-    if known {
-        return (
-            StatusCode::NOT_MODIFIED,
-            [(header::ETAG, SCRIPT_ETAG.as_str())],
-        )
-            .into_response();
-    }
-    (
-        [
-            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
-            (header::CACHE_CONTROL, "no-cache"),
-            (header::ETAG, SCRIPT_ETAG.as_str()),
-        ],
+    script(
+        &headers,
+        SCRIPT_ETAG.as_str(),
         crate::web::views::MENTION_SCRIPT,
     )
-        .into_response()
 }
 
 pub fn router(state: AppState) -> Router {
@@ -1458,6 +1493,7 @@ pub fn router(state: AppState) -> Router {
         .route("/notifications/read", axum::routing::post(read_all))
         .route("/notifications/e/{id}", get(open_event))
         .route("/notifications/stream", get(notifications_stream))
+        .route("/notifications.json", get(notifications_json))
         .route("/mentionable", get(mentionable))
         .route(
             "/notifications/mention-mail",
@@ -1482,6 +1518,7 @@ pub fn router(state: AppState) -> Router {
         .route("/a/{id}", get(serve_attachment))
         .route("/assets/style.css", get(stylesheet))
         .route("/assets/mention.js", get(mention_script))
+        .route("/assets/bell.js", get(bell_script))
         .route("/auth/login", get(login))
         .route("/u/{id}/{token}", get(unsubscribe_page))
         .route("/u/{id}/{token}", axum::routing::post(unsubscribe_now))

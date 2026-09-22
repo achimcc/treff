@@ -58,3 +58,5 @@ mention_mail_is_on            = "When somebody mentions you with @, you get a ma
 mention_mail_is_off           = "Mentions show up here only, without a mail."
 film_available                = "is here"
 film_failed                   = "could not be got"
+all_notifications             = "All notifications"
+nothing_new_short             = "Nothing new."

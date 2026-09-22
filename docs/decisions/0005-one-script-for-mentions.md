@@ -50,3 +50,17 @@ The sentence "there is no script on any page" is no longer true, and the
 comments that say it (views, stylesheet) are changed with this ADR rather
 than left to mislead. Reviewing a change to `mention.js` is now part of
 reviewing treff; it is small on purpose so that stays possible.
+
+## Amended 2026-09-22 (stage 5): a second script, for the bell
+
+`bell.js` opens the bell's list as an overlay in place and keeps the number
+live over Server-Sent Events (`/notifications/stream`). The same rules hold:
+from `'self'`, its own route, no library, no inline code, every text through
+`textContent` — and nothing depends on it. Without it the bell is a link to
+`/notifications` and the number is the one the page was made with. The CSP
+does not change; `script-src 'self'` already covers a second file.
+
+Everything the script needs is on the bell element (`data-stream`,
+`data-json`, the `href`, and its words as `data-t-*` in the page's language),
+so the start page of the operator's server runs the same file for its own
+bell (homeserver, `docs/2026-09-22-glocke-fuer-alles-design.md`).

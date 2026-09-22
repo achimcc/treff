@@ -246,7 +246,62 @@ async fn a_read_bundle_does_not_call_itself_new() {
         .expect("reply");
     page(&app, FORUM, &format!("/t/{t}"), &ada).await;
 
-    let list = page(&app, FORUM, "/notifications", &ada).await;
+    let page_html = page(&app, FORUM, "/notifications", &ada).await;
+    // Only the list itself: the bell in the header carries all its words as
+    // attributes for bell.js, "neue Antwort" among them.
+    let list = page_html
+        .split("<main>")
+        .nth(1)
+        .expect("a main element")
+        .to_string();
     assert!(list.contains("1 Antwort in"), "{list}");
     assert!(!list.contains("neue Antwort"), "{list}");
+}
+
+/// The bell carries what its script needs — where to listen, where to ask,
+/// and its words in the page's language — and stays a plain link to the
+/// list for a browser without the script.
+#[tokio::test]
+async fn the_bell_carries_its_stream_and_its_words() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let html = page(&app, FORUM, "/", &ada).await;
+    let bell = html
+        .split("<a class=\"bell\"")
+        .nth(1)
+        .and_then(|rest| rest.split('>').next())
+        .expect("the bell");
+    for needle in [
+        r#"href="/notifications""#,
+        r#"data-stream="/notifications/stream""#,
+        r#"data-json="/notifications.json""#,
+        r#"data-t-all="Alle Benachrichtigungen""#,
+        r#"data-t-mentioned-you-in="hat dich erwaehnt in""#,
+    ] {
+        assert!(bell.contains(needle), "{needle} in {bell}");
+    }
+}
+
+#[tokio::test]
+async fn the_overlay_asks_for_the_same_entries_as_the_page() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let t = treff::db::topics::create_topic(&db, FORUM, "general", "Holiday", "B", &person("ada"))
+        .await
+        .expect("topic");
+    let first = treff::db::topics::add_reply(&db, t, "one", &person("ben"))
+        .await
+        .expect("reply");
+    let response = app
+        .clone()
+        .oneshot(get(FORUM, "/notifications.json", &ada))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let body: serde_json::Value = serde_json::from_str(&body_of(response).await).expect("json");
+    assert_eq!(body["unread"], 1);
+    assert_eq!(body["entries"][0]["kind"], "replies");
+    assert_eq!(body["entries"][0]["title"], "Holiday");
+    assert_eq!(body["entries"][0]["link"], format!("/t/{t}#p{first}"));
 }

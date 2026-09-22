@@ -73,3 +73,76 @@ where
     });
     Sse::new(stream).keep_alive(KeepAlive::new().interval(KEEP_ALIVE))
 }
+
+/// One entry as a page outside the list draws it — the start page, and the
+/// overlay under the bell. Words are the page's business; this
+/// carries the facts and a link that leads through the forum, where reading
+/// marks things read.
+pub fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Value {
+    use crate::db::inbox::Entry;
+    match entry {
+        Entry::Replies {
+            topic_id,
+            topic_title,
+            count,
+            latest_author,
+            latest_at,
+            first_post_id,
+            unread,
+        } => serde_json::json!({
+            "kind": "replies",
+            "title": topic_title,
+            "count": count,
+            "author": latest_author,
+            "at": latest_at,
+            "unread": unread,
+            "link": format!("{base}/t/{topic_id}#p{first_post_id}"),
+        }),
+        Entry::Mention {
+            topic_id,
+            topic_title,
+            post_id,
+            author,
+            at,
+            unread,
+        } => serde_json::json!({
+            "kind": "mention",
+            "title": topic_title,
+            "author": author,
+            "at": at,
+            "unread": unread,
+            "link": format!("{base}/t/{topic_id}#p{post_id}"),
+        }),
+        Entry::Event {
+            id,
+            kind,
+            title,
+            reason,
+            at,
+            unread,
+        } => serde_json::json!({
+            "kind": kind.as_str(),
+            "title": title,
+            "reason": reason,
+            "at": at,
+            "unread": unread,
+            "link": format!("{base}/notifications/e/{id}"),
+        }),
+    }
+}
+
+/// The bell of an account, as JSON: the number and the entries, with links
+/// under `base` (`""` for links on the same host, `https://<space>` for a
+/// page elsewhere).
+pub async fn bell_json(
+    db: &crate::db::Db,
+    subject: &str,
+    space: &str,
+    base: &str,
+    limit: i64,
+) -> anyhow::Result<serde_json::Value> {
+    let unread = crate::db::inbox::unread_count(db, subject, space).await?;
+    let entries = crate::db::inbox::entries(db, subject, space, limit).await?;
+    let entries: Vec<serde_json::Value> = entries.iter().map(|e| entry_json(e, base)).collect();
+    Ok(serde_json::json!({ "unread": unread, "entries": entries }))
+}

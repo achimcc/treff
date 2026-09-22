@@ -99,7 +99,11 @@ async fn a_mention_reaches_somebody_who_may_read() {
     let list = entries(&db, "ben").await;
     assert_eq!(mentions(&list), 1, "{list:?}");
     let page = body_of(send(&app, get("/notifications", &ben)).await).await;
-    assert!(page.contains("hat dich erwaehnt in"), "{page}");
+    // In the list, not anywhere on the page: the bell carries the same words
+    // as an attribute for bell.js, and a search over the whole page would be
+    // green without any mention at all.
+    let list = page.split("<main>").nth(1).expect("a main element");
+    assert!(list.contains("hat dich erwaehnt in"), "{list}");
 }
 
 #[tokio::test]

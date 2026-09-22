@@ -415,7 +415,11 @@ async fn a_page_loads_the_script_and_no_inline_code() {
         html.contains(r#"<script src="/assets/mention.js" defer></script>"#),
         "{html}"
     );
-    assert_eq!(html.matches("<script").count(), 1, "{html}");
+    assert!(
+        html.contains(r#"<script src="/assets/bell.js" defer></script>"#),
+        "{html}"
+    );
+    assert_eq!(html.matches("<script").count(), 2, "{html}");
     let lower = html.to_lowercase();
     for attribute in [
         " onclick=",
@@ -426,4 +430,20 @@ async fn a_page_loads_the_script_and_no_inline_code() {
     ] {
         assert!(!lower.contains(attribute), "{attribute} in {html}");
     }
+}
+
+/// The bell's script, from its own route like the other one.
+#[tokio::test]
+async fn the_bell_script_is_served_from_its_own_route() {
+    let (_d, app) = setup().await;
+    let response = app
+        .oneshot(get("forum.example.org", "/assets/bell.js"))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()["content-type"],
+        "text/javascript; charset=utf-8"
+    );
+    assert!(response.headers().contains_key("etag"));
 }

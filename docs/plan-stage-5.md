@@ -15,7 +15,7 @@ does this person have?
 |---|---|
 | Done | **Task 1** — events: table, intake rules, entries in the bell |
 | Done | **Task 2** — the internal listener: `POST /internal/events`, `GET /internal/bell` |
-| Open | **Task 3** — live: a change signal, two streams, `bell.js` |
+| Done | **Task 3** — live: a change signal, two streams, `bell.js` |
 | Open | **Task 4** — the NixOS module, the VM test, ADR 0006 |
 
 ---
@@ -82,23 +82,32 @@ does this person have?
 `src/web/internal.rs`, `src/web/bell.js` (new), `tests/live.rs` (new),
 `tests/js/`
 
-- [ ] A process-wide change signal (`tokio::sync::broadcast`): after the
+- [x] A process-wide change signal (`tokio::sync::broadcast`): after the
       COMMIT of anything that changes somebody's unread — a reply, a topic,
       an edit with a mention, an event, a read — the space is announced.
       Announced after the commit, never inside the transaction: a stream that
       asks before the commit reads the old state.
-- [ ] `GET /notifications/stream` (session, public listener) and
+- [x] `GET /notifications/stream` (session, public listener) and
       `GET /internal/bell/stream` (token B, internal): Server-Sent Events. One
       `bell` event on connect, one after every change in the space whose
       payload differs from the last one sent, a comment every 25 s. A lagging
       receiver re-reads instead of failing.
-- [ ] `bell.js` in treff keeps the number in the header current; without it
-      the number is what it was when the page loaded. ADR 0005 is amended
+- [x] `bell.js` in treff keeps the number in the header current AND opens the
+      list as an overlay under the bell (asked for on 2026-09-22: a click on
+      the bell opens the overlay; a click on an entry goes to it; "all
+      notifications" at the bottom goes to the page). The bell is a chip with
+      a filled badge now, easier to find. Without the script it is a link to
+      `/notifications` and the number is what it was when the page loaded.
+      `GET /notifications.json` gives the overlay's contents without a stream. ADR 0005 is amended
       (two scripts, both from `'self'`, nothing depends on either).
-- [ ] Tests: a stream sees a reply, a mention, an event and a read at once;
+- [x] Tests: a stream sees a reply, a mention, an event and a read at once;
       a stream for somebody else sees nothing of it; the internal stream
       needs its token. `tests/js/` drives `bell.js` against a stubbed
-      `EventSource`.
+      `EventSource`. Two findings while looking: the script found no bell when
+      loaded before the body (it waits for the document now), and two route
+      tests had gone blind — they searched the whole page for words the bell
+      now carries as attributes; they read `<main>` now, and a run without the
+      mention makes one of them red again.
 
 ## Task 4 · The NixOS module, the VM test, ADR 0006
 

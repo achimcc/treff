@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<!-- Drives the REAL src/web/bell.js in a browser; see run.sh. Inline script
+     is fine here: this file is a test fixture, never served by treff. -->
+<html lang="de"><head><meta charset="utf-8"><title>bell.js</title>
+<script>
+  // A stand-in for the stream: the test pushes frames through `push`.
+  var sources = [];
+  window.EventSource = function (url) {
+    this.url = url; this.listeners = {}; sources.push(this);
+  };
+  window.EventSource.prototype.addEventListener = function (name, f) { this.listeners[name] = f; };
+  function push(data) { sources[0].listeners.bell({ data: JSON.stringify(data) }); }
+  window.fetch = function () { return Promise.reject(new Error("the stream is enough here")); };
+</script>
+<script src="/src/web/bell.js"></script>
+</head><body>
+<header><nav>
+  <a class="bell" href="/notifications" data-stream="/notifications/stream" data-json="/notifications.json"
+     data-t-title="Benachrichtigungen" data-t-all="Alle Benachrichtigungen" data-t-nothing="Nichts Neues."
+     data-t-new-reply-in="neue Antwort in" data-t-new-replies-in="neue Antworten in"
+     data-t-reply-in="Antwort in" data-t-replies-in="Antworten in" data-t-latest-from="zuletzt von"
+     data-t-mentioned-you-in="hat dich erwaehnt in" data-t-film-available="ist da"
+     data-t-film-failed="konnte nicht besorgt werden" data-t-unread="ungelesen">B</a>
+</nav></header>
+<main><p id="elsewhere">elsewhere</p></main>
+<pre id="out"></pre>
+<script>
+  var r = {};
+  var bell = document.querySelector("a.bell");
+  function panel() { return document.getElementById("bell-panel"); }
+  function items() { return Array.prototype.map.call(panel().querySelectorAll("li"), function (li) {
+    var a = li.querySelector("a"); return (a ? a.getAttribute("href") + " " : "") + li.textContent.replace(/\s+/g, " ").replace(/\d\d\.\d\d\.\d\d, \d\d:\d\d/, "<time>"); }); }
+  function click(node) { node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })); }
+  function tick() { return new Promise(function (res) { setTimeout(res, 20); }); }
+  (async function () {
+    await tick();
+    r.listens_to = sources[0] && sources[0].url;
+    r.closed_at_first = panel().hidden;
+    push({ unread: 0, entries: [] });
+    r.no_badge_at_zero = bell.querySelector(".unread") === null;
+    click(bell); await tick();
+    r.click_opens = !panel().hidden;
+    r.expanded = bell.getAttribute("aria-expanded");
+    r.empty_says_so = items();
+    r.all_leads_to_the_page = panel().querySelector(".bell-all").getAttribute("href");
+    push({ unread: 3, entries: [
+      { kind: "replies", title: "Holiday", count: 2, author: "Ben", at: 1700000000, unread: true, link: "/t/1#p5" },
+      { kind: "mention", title: "Film night", author: "Ada", at: 1700000000, unread: true, link: "/t/2#p9" },
+      { kind: "film_failed", title: "Dune", reason: "no release", at: 1700000000, unread: true, link: "/notifications/e/7" },
+      { kind: "something_new", title: "?", at: 1700000000, unread: true, link: "/x" }
+    ] });
+    r.badge_follows_the_stream = bell.querySelector(".unread").textContent;
+    r.entries = items();
+    click(document.getElementById("elsewhere")); await tick();
+    r.click_outside_closes = panel().hidden;
+    click(bell); await tick();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    r.escape_closes = panel().hidden;
+    bell.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    r.ctrl_click_is_left_to_the_browser = panel().hidden;
+    push({ unread: 0, entries: [] });
+    r.badge_goes_at_zero = bell.querySelector(".unread") === null;
+    document.getElementById("out").textContent = JSON.stringify(r);
+  })();
+</script>
+</body></html>
