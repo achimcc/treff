@@ -86,5 +86,6 @@ one tag the layout writes
 
 ## After the stage
 
-- [ ] Preview opened, `nix flake check`, version `0.6.0`, CHANGELOG, README.
+- [x] Preview opened, version `0.6.0`, CHANGELOG, README.
+- [ ] `nix flake check`.
 - [ ] Deployment as for 0.5.0, newsletter entry.

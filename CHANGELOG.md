@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 — 2026-09-22
+
+Completing `@handle`, as asked for the day 0.5.0 shipped: *when somebody
+types `@`, show everybody as an overlay; when they type on, complete it.*
+
+- **Typing `@` opens a list** under the text field of everybody who may be
+  mentioned in this space; typing on narrows it by handle or by any word of
+  the name (`@mü` finds Konrad Müller). Arrow keys, Enter or Tab, Escape, or a
+  click. What is written is always `@handle `.
+- **The first script** — `/assets/mention.js`, from its own route, no
+  library, no inline code. The CSP moves from `script-src 'none'` to
+  `script-src 'self'` and no further. Nothing depends on it: without it,
+  `@handle` is typed by hand as before (ADR 0005).
+- **`GET /mentionable`** gives the list: readers of the space with a handle,
+  name and handle only, `no-store` — the same rule that decides who a
+  mention tells. A list of everybody with an account would say who exists.
+- Measured in headless Chrome by `tests/js/run.sh`, which compares what the
+  script did against `tests/js/expected.txt`.
+
 ## 0.5.0 — 2026-09-22
 
 The bell and `@`-mentions — asked for by a member of the forum, who gets a

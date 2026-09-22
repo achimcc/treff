@@ -21,7 +21,9 @@ groups in their token. No local accounts, no passwords, no open registration.
   bundled per topic, and **`@handle` mentions**, one by one. A mention tells
   the person — in the bell and by mail — only if their groups let them read
   the space; otherwise it is plain text, and nothing on the page says whether
-  the handle belongs to anybody.
+  the handle belongs to anybody. Typing `@` opens a list of everybody who may
+  be mentioned, and typing on narrows it — the one script treff ships, which
+  nothing depends on (`docs/decisions/0005-one-script-for-mentions.md`).
 
 An empty group list grants nothing, never everything. An unknown `Host` is
 refused rather than mapped to the first space. Missing OIDC settings stop the
@@ -29,9 +31,10 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.5.0** — everything below works and is covered by tests. It is in
+Early. **v0.6.0** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06. Stage 2 brought notifications and
-search, stage 3 the bell and mentions (`docs/plan-stage-3.md`).
+search, stage 3 the bell and mentions (`docs/plan-stage-3.md`), stage 4 completing
+`@handle` (`docs/plan-stage-4.md`).
 
 ## Configuration
 
