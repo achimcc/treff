@@ -134,6 +134,9 @@ pub async fn take(db: &Db, space: &str, event: &Checked) -> anyhow::Result<bool>
     .execute(db.pool())
     .await?
     .rows_affected();
+    if inserted == 1 {
+        db.changed(space);
+    }
     Ok(inserted == 1)
 }
 
@@ -162,6 +165,9 @@ pub async fn open(
     .bind(subject)
     .fetch_optional(db.pool())
     .await?;
+    if row.is_some() {
+        db.changed(space);
+    }
     Ok(row.map(|r| r.get("link")))
 }
 

@@ -739,6 +739,32 @@ async fn set_mention_mail(
     }
 }
 
+/// The bell in the header, live (`bell.js`). The person is the one this
+/// stream was opened by; a session that ends while it is open is noticed at
+/// the next reconnect, like everywhere else a page stays open.
+async fn notifications_stream(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    let db = app.db.clone();
+    let host = space.host.clone();
+    let subject = who.subject.clone();
+    let stream = crate::live::bell_stream(&app.db, space.host.clone(), move || {
+        let db = db.clone();
+        let host = host.clone();
+        let subject = subject.clone();
+        async move {
+            let unread = crate::db::inbox::unread_count(&db, &subject, &host).await?;
+            Ok(serde_json::json!({ "unread": unread }))
+        }
+    });
+    ([(header::CACHE_CONTROL, "no-store")], stream).into_response()
+}
+
 /// Following an event: read, then on — to the link that was checked when the
 /// event came in (`db::events::checked`), never to one from this request.
 async fn open_event(
@@ -1431,6 +1457,7 @@ pub fn router(state: AppState) -> Router {
         .route("/notifications", get(notifications))
         .route("/notifications/read", axum::routing::post(read_all))
         .route("/notifications/e/{id}", get(open_event))
+        .route("/notifications/stream", get(notifications_stream))
         .route("/mentionable", get(mentionable))
         .route(
             "/notifications/mention-mail",

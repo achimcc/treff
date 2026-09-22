@@ -3780,6 +3780,7 @@ dependencies = [
  "axum-extra",
  "base64 0.23.1",
  "comrak",
+ "futures-util",
  "hmac 0.13.0",
  "jiff",
  "lettre",

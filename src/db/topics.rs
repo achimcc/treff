@@ -139,6 +139,7 @@ pub async fn create_topic_mentioning(
     crate::db::outbox::queue_webhook(&mut tx, space, id, post_id, &author.subject).await?;
 
     tx.commit().await?;
+    db.changed(space);
     Ok(id)
 }
 
@@ -204,6 +205,7 @@ pub async fn add_reply_mentioning(
     crate::db::inbox::note_replies_in(&mut tx, &space, topic_id, id, &author.subject).await?;
 
     tx.commit().await?;
+    db.changed(&space);
     Ok(id)
 }
 
@@ -322,6 +324,7 @@ pub async fn update_post_mentioning(
         crate::db::outbox::queue_mentions_in(&mut tx, space, topic_id, post_id, &told).await?;
     }
     tx.commit().await?;
+    db.changed(space);
     Ok(true)
 }
 
@@ -371,6 +374,7 @@ pub async fn delete_post(
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+        db.changed(space);
         return Ok(Deleted::Topic);
     }
 
@@ -384,6 +388,7 @@ pub async fn delete_post(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    db.changed(space);
     Ok(Deleted::Post)
 }
 

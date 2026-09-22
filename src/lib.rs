@@ -13,6 +13,7 @@ pub mod config;
 pub mod db;
 pub mod export;
 pub mod i18n;
+pub mod live;
 pub mod markup;
 pub mod media;
 pub mod mentions;

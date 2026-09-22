@@ -101,7 +101,9 @@ pub fn router(state: InternalState) -> Router {
         router = router.route("/internal/events", post(take_event));
     }
     if state.bell_token.is_some() {
-        router = router.route("/internal/bell", get(bell));
+        router = router
+            .route("/internal/bell", get(bell))
+            .route("/internal/bell/stream", get(bell_stream));
     }
     router.with_state(state)
 }
@@ -181,6 +183,30 @@ async fn bell(State(state): State<InternalState>, headers: HeaderMap) -> Respons
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+/// The same answer, live, for the start page (`live::bell_stream`). The
+/// person is who the proxy named when the stream was opened.
+async fn bell_stream(State(state): State<InternalState>, headers: HeaderMap) -> Response {
+    let Some(token) = state.bell_token.as_deref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !presents(&headers, token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let space = state
+        .config
+        .events
+        .as_ref()
+        .map(|e| e.space.clone())
+        .unwrap_or_default();
+    let db = state.db.clone();
+    let stream = crate::live::bell_stream(&db, space, move || {
+        let state = state.clone();
+        let headers = headers.clone();
+        async move { bell_for(&state, &headers).await }
+    });
+    ([(header::CACHE_CONTROL, "no-store")], stream).into_response()
 }
 
 /// The answer for whoever the proxy named — or an empty bell, for everybody

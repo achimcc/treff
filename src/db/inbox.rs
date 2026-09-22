@@ -318,6 +318,8 @@ pub async fn mark_topic_read(db: &Db, subject: &str, topic_id: i64) -> anyhow::R
     .bind(topic_id)
     .execute(db.pool())
     .await?;
+    // The topic's space is not at hand here; every stream asks again.
+    db.changed(crate::db::EVERY_SPACE);
     Ok(())
 }
 
@@ -339,6 +341,7 @@ pub async fn mark_all_read(db: &Db, subject: &str, space: &str) -> anyhow::Resul
     .bind(space)
     .execute(db.pool())
     .await?;
+    db.changed(space);
     Ok(())
 }
 

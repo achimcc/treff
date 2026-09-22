@@ -17,7 +17,17 @@ use std::path::Path;
 #[derive(Clone)]
 pub struct Db {
     pool: SqlitePool,
+    /// "Somebody's unread may have changed in this space" — announced after
+    /// the commit of every write that can change it, so the bell's streams
+    /// can ask again (plan-stage-5, task 3). On the database and not on the
+    /// router, because the public and the internal listener share the
+    /// database, and a change made through one must reach streams on both.
+    changes: tokio::sync::broadcast::Sender<String>,
 }
+
+/// What `Db::changed` sends when the space is not known at the call site: every
+/// stream asks again. Cheap, and rarer than a precise announcement.
+pub const EVERY_SPACE: &str = "*";
 
 impl Db {
     /// Opens (and creates) the database and brings it up to the current
@@ -46,7 +56,22 @@ impl Db {
             .connect_with(opts)
             .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
-        Ok(Self { pool })
+        // A small buffer is enough: a receiver that falls behind is told so
+        // (`Lagged`) and asks again, which is what it would have done anyway.
+        let (changes, _) = tokio::sync::broadcast::channel(64);
+        Ok(Self { pool, changes })
+    }
+
+    /// Announces that unread entries in `space` may have changed. After the
+    /// commit, never inside the transaction: a stream that asks before the
+    /// commit reads the old state and has nothing left to wake it.
+    pub fn changed(&self, space: &str) {
+        // No receiver is not an error: nobody is watching.
+        let _ = self.changes.send(space.to_string());
+    }
+
+    pub fn changes(&self) -> tokio::sync::broadcast::Receiver<String> {
+        self.changes.subscribe()
     }
 
     pub fn pool(&self) -> &SqlitePool {
