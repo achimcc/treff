@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.8.0 — 2026-09-22
+
+treff knows everybody the identity provider knows, whether or not they have
+ever opened it (plan-stage-6, ADR 0007). The evening mentions went live, the
+`@` list offered exactly one person: whoever was writing. A mention is for
+somebody who is *not* looking, so the forum has to know people before they
+come.
+
+- **`/scim/v2` on the internal listener**, behind a third token of its own
+  (`TREFF_SCIM_TOKEN_FILE`, NixOS `services.treff.internal.scimTokenFile`).
+  The provider pushes its people and groups in; treff asks it for nothing.
+  The only route that WRITES who exists, which is why it does not share the
+  bell's token. Unset, it does not exist.
+- **`/Users` and `/Groups`**: `POST` (a second one writes the same row and
+  answers like a creation, so a resync is not a conflict), `GET` with
+  `startIndex`/`count` and `filter=userName eq "…"` / `displayName eq "…"`,
+  `GET /{id}`, `PUT /{id}`, `DELETE /{id}`, and `PATCH /{id}` for the three
+  member shapes the client really sends — `add` on `members`, `remove` on
+  `members`, `remove` on `members[value eq "…"]`. Anything else is a `400`,
+  and the whole request is refused rather than half applied.
+- **The id is the `externalId`, and it has to be a UUID.** treff's `sub` is
+  the user's UUID; the provider's mapping has to set `externalId` to the same
+  value, and that equality is what makes the person pushed in and the person
+  who signs in ONE account. Anything else is refused loudly instead of
+  building a second population no sign-in ever matches.
+- **Groups decide who may read, at once.** A membership recomputes the
+  person's groups, so `may_read`, the `@` list and mention mail follow the
+  provider without a sign-in and without a deploy.
+- **Leaving clears the row and keeps it.** `active: false` and `DELETE` empty
+  handle, address and groups; the row stays, because posts carry their
+  author and a forum's history is not rewritten because somebody went.
+- **The `@` list no longer offers you yourself.** Mentioning yourself does
+  nothing, and on the evening this went live it was the only name there was.
+
 ## 0.7.0 — 2026-09-22
 
 The bell grows beyond the forum: it opens in place, follows every change at

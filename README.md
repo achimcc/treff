@@ -24,6 +24,12 @@ groups in their token. No local accounts, no passwords, no open registration.
   the handle belongs to anybody. Typing `@` opens a list of everybody who may
   be mentioned, and typing on narrows it — the one script treff ships, which
   nothing depends on (`docs/decisions/0005-one-script-for-mentions.md`).
+- **The identity provider pushes everybody it knows in**, over SCIM
+  (`/scim/v2`, on the internal listener, behind its own token). So the `@`
+  list holds people who have never opened treff, and a mention reaches them
+  by mail; a group changed at the provider changes who may read here within
+  seconds. treff asks the provider for nothing — the push is the whole
+  interface (`docs/decisions/0007-scim-in.md`).
 
 An empty group list grants nothing, never everything. An unknown `Host` is
 refused rather than mapped to the first space. Missing OIDC settings stop the
@@ -31,11 +37,13 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.7.0** — everything below works and is covered by tests. It is in
+Early. **v0.8.0** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06. Stage 2 brought notifications and
 search, stage 3 the bell and mentions (`docs/plan-stage-3.md`), stage 4 completing
 `@handle` (`docs/plan-stage-4.md`), stage 5 events from other services and
-the bell outside treff (`docs/plan-stage-5.md`, ADR 0006).
+the bell outside treff (`docs/plan-stage-5.md`, ADR 0006), stage 6 the
+identity provider pushing everybody it knows into treff over SCIM
+(`docs/plan-stage-6.md`, ADR 0007).
 
 ## Configuration
 
@@ -110,6 +118,16 @@ escalation by typo.
 | `TREFF_WEBHOOK_URL` | a second exit; one POST per post, JSON |
 | `TREFF_WEBHOOK_TOPIC` | put in the body as `topic` (ntfy wants it there) |
 | `TREFF_WEBHOOK_TOKEN_FILE` | a **path** to a bearer token, never the token |
+| `TREFF_INTERNAL_LISTEN` | the second door, for services on the same machine (ADR 0006). **Never behind a public virtual host** |
+| `TREFF_EVENTS_TOKEN_FILE` | a **path**; opens `POST /internal/events` |
+| `TREFF_BELL_TOKEN_FILE` | a **path**; opens `GET /internal/bell` and its stream |
+| `TREFF_SCIM_TOKEN_FILE` | a **path**; opens `/scim/v2`, where the provider pushes people and groups in (ADR 0007) |
+
+A route whose token is unset **does not exist** — never "open, because nothing
+was configured". The three tokens are three different tokens on purpose: a
+leak of the bell's, which only reads, must not open the SCIM door, which
+writes who exists. A token file without `TREFF_INTERNAL_LISTEN` stops treff at
+startup rather than staying quietly shut.
 
 There is no redirect-URI setting. Each space is sent back to
 `https://<its host>/auth/callback`, so **register one redirect URI per space**
