@@ -7,11 +7,23 @@
   // down. The test asks what the script did in each case.
   var calls = [];
   window.fetch = function (url, init) {
-    calls.push({ url: url, method: init && init.method, accept: init && init.headers && init.headers.Accept });
-    if (calls.length === 1) {
+    var method = (init && init.method) || "GET";
+    calls.push({ url: url, method: method, accept: init && init.headers && init.headers.Accept });
+    if (url === "/p/7/like") {
       return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ liked: true, count: 3 }); } });
     }
-    return Promise.resolve({ ok: false, json: function () { return Promise.resolve({}); } });
+    if (url === "/p/8/like") {
+      return Promise.resolve({ ok: false, json: function () { return Promise.resolve({}); } });
+    }
+    if (url === "/p/9/like" && method === "POST") {
+      // The server committed and said so — but the body is broken.
+      return Promise.resolve({ ok: true, json: function () { return Promise.reject(new Error("broken body")); } });
+    }
+    if (url === "/p/9/like") {
+      // The read-back: the true state, no second toggle.
+      return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ liked: true, count: 5 }); } });
+    }
+    return Promise.reject(new Error("offline"));
   };
 </script>
 <script src="/src/web/like.js"></script>
@@ -24,6 +36,15 @@
 <form class="like" id="second" method="post" action="/p/8/like">
   <button type="submit" aria-pressed="false" aria-label="Gefaellt mir"
           data-t-like="Gefaellt mir" data-t-unlike="Gefaellt mir nicht mehr">H<span class="count">1</span></button>
+</form>
+<form class="like" id="third" method="post" action="/p/9/like">
+  <button type="submit" aria-pressed="false" aria-label="Gefaellt mir"
+          data-t-like="Gefaellt mir" data-t-unlike="Gefaellt mir nicht mehr"
+          data-t-likes-one="1 Herz" data-t-likes-many="Herzen">H</button>
+</form>
+<form class="like" id="fourth" method="post" action="/p/10/like">
+  <button type="submit" aria-pressed="false" aria-label="Gefaellt mir"
+          data-t-like="Gefaellt mir" data-t-unlike="Gefaellt mir nicht mehr">H</button>
 </form>
 </main>
 <pre id="out"></pre>
@@ -48,8 +69,23 @@
     r.enabled_again = !b1.disabled;
     submitOf(second);
     await tick();
-    r.falls_back_to_the_form = submitted;
+    r.falls_back_to_the_form = submitted.slice();
     r.second_unchanged = second.querySelector("button").getAttribute("aria-pressed") + "/" + second.querySelector(".count").textContent;
+    // The server said yes, the body was broken: NO second POST (it would
+    // toggle the like back), the true state is read instead.
+    var third = document.getElementById("third");
+    third.submit = function () { submitted.push(third.id); };
+    submitOf(third); await tick(); await tick();
+    r.third_not_posted_twice = calls.filter(function (c) { return c.url === "/p/9/like" && c.method === "POST"; }).length;
+    r.third_read_back = calls.filter(function (c) { return c.url === "/p/9/like" && c.method === "GET"; }).length;
+    var b3 = third.querySelector("button");
+    r.third_shows_true_state = b3.getAttribute("aria-pressed") + "/" + (b3.querySelector(".count") && b3.querySelector(".count").textContent);
+    r.third_label_carries_the_number = b3.getAttribute("aria-label");
+    // Offline: the request never left, the form goes the ordinary way.
+    var fourth = document.getElementById("fourth");
+    fourth.submit = function () { submitted.push(fourth.id); };
+    submitOf(fourth); await tick();
+    r.submitted_in_the_end = submitted;
     document.getElementById("out").textContent = JSON.stringify(r);
   })();
 </script>

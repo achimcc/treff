@@ -11,7 +11,10 @@ one thing).
   button. `POST /p/{id}/like` toggles and comes back at the post, or answers
   `{"liked", "count"}` as JSON for `like.js` — the third script, on the
   terms of ADR 0005: without it the like is a form and the page reloads.
-  Reading the space is the right that is needed, not replying.
+  `GET /p/{id}/like` reads the state without changing it — what the script
+  asks when the server said yes but the answer came back broken, because a
+  second `POST` would toggle the like back. Reading the space is the right
+  that is needed, not replying.
 - **The author hears about it in the bell, never by mail.** One entry per
   post — "ben likes your post in …", "cem and 2 others like your post in …"
   — re-opened by the next like, gone with the last one. `inbox.reason`

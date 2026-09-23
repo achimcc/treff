@@ -92,6 +92,7 @@ async fn a_like_shows_under_the_post_and_a_second_click_takes_it_back() {
     let before = page(&app, FORUM, &format!("/t/{t}"), &ben).await;
     let form = like_form(&before, p).expect("a heart on somebody else's post");
     assert!(form.contains(r#"aria-pressed="false""#), "{form}");
+    assert!(form.contains(r#"aria-label="Like""#), "{form}");
     assert!(
         !form.contains(r#"class="count""#),
         "no number at zero: {form}"
@@ -113,6 +114,9 @@ async fn a_like_shows_under_the_post_and_a_second_click_takes_it_back() {
     let form = like_form(&after, p).expect("form");
     assert!(form.contains(r#"aria-pressed="true""#), "{form}");
     assert!(form.contains(r#"class="count">1<"#), "{form}");
+    // A screen reader hears the number too: `aria-label` replaces the
+    // button's content, so the count has to be in it.
+    assert!(form.contains(r#"aria-label="Unlike, 1 like""#), "{form}");
     assert!(
         form.contains("ben the tester"),
         "the name in the title: {form}"
@@ -282,4 +286,34 @@ async fn the_page_loads_the_script_from_its_own_route() {
         "{:?}",
         response.headers()
     );
+}
+
+/// The state of one heart, read-only — what `like.js` asks for when the
+/// server said yes but the answer did not arrive whole. Never a toggle.
+#[tokio::test]
+async fn the_state_of_a_heart_can_be_read_without_changing_it() {
+    let (dir, db, app) = setup_with_db().await;
+    let (_, p) = topic(&db, FORUM, "ada").await;
+    let ben = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    treff::db::likes::toggle(&db, FORUM, p, &person("cem"))
+        .await
+        .expect("like");
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(get(FORUM, &format!("/p/{p}/like"), &ben))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let json: serde_json::Value = serde_json::from_str(&body_of(response).await).expect("json");
+        assert_eq!(json["liked"], false);
+        assert_eq!(json["count"], 1, "reading changes nothing");
+    }
+    let response = app
+        .clone()
+        .oneshot(get(BLOG, &format!("/p/{p}/like"), &ben))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

@@ -1236,6 +1236,36 @@ async fn like_post(
     }
 }
 
+/// The state of one heart, read-only: what `like.js` asks for when the
+/// server said yes but the answer did not arrive whole — asking again with a
+/// POST would toggle the like back. Never changes anything.
+async fn like_state(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    match crate::db::topics::load_post(&app.db, &space.host, id).await {
+        Ok(None) => return not_found(),
+        Ok(Some(_)) => {}
+        Err(e) => return server_error("cannot load a post", &e),
+    }
+    match crate::db::likes::summaries(&app.db, &[id], &who.subject).await {
+        Ok(all) => {
+            let summary = all.get(&id).cloned().unwrap_or_default();
+            (
+                [(header::CACHE_CONTROL, "no-store")],
+                axum::Json(serde_json::json!({ "liked": summary.liked, "count": summary.count })),
+            )
+                .into_response()
+        }
+        Err(e) => server_error("cannot look up likes", &e),
+    }
+}
+
 #[derive(serde::Deserialize)]
 pub struct EditPost {
     body: String,
@@ -1615,7 +1645,7 @@ pub fn router(state: AppState) -> Router {
         .route("/t/{id}/follow", axum::routing::post(follow))
         .route("/t/{id}/unfollow", axum::routing::post(unfollow))
         .route("/p/{id}/edit", axum::routing::post(edit_post))
-        .route("/p/{id}/like", axum::routing::post(like_post))
+        .route("/p/{id}/like", get(like_state).post(like_post))
         // One address, two methods: the GET asks, the POST acts.
         .route("/p/{id}/delete", get(delete_question).post(delete_post))
         // Two limits, and both are needed. This one protects memory and is

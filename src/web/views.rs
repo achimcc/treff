@@ -542,6 +542,10 @@ fn like_control(
     let liked = summary.is_some_and(|s| s.liked);
     let names = summary.map(|s| s.names.join(", ")).unwrap_or_default();
     let who = (!names.is_empty()).then_some(names.as_str());
+    // `aria-label` REPLACES the button's content for a screen reader, so the
+    // number has to be in it: "Unlike, 2 likes". `like.js` rebuilds it from
+    // the same words, which travel on the button.
+    let label = like_label(lang, liked, count);
     html! {
         @if own {
             @if count > 0 {
@@ -554,13 +558,25 @@ fn like_control(
             form class="like" method="post" action={ "/p/" (post_id) "/like" } {
                 button type="submit" aria-pressed=(if liked { "true" } else { "false" })
                        title=[who]
-                       aria-label=(lang.t(if liked { "unlike" } else { "like" }))
-                       data-t-like=(lang.t("like")) data-t-unlike=(lang.t("unlike")) {
+                       aria-label=(label)
+                       data-t-like=(lang.t("like")) data-t-unlike=(lang.t("unlike"))
+                       data-t-likes-one=(lang.t("likes_one")) data-t-likes-many=(lang.t("likes_many")) {
                     (icon_heart())
                     @if count > 0 { span class="count" { (count) } }
                 }
             }
         }
+    }
+}
+
+/// What the heart says to somebody who cannot see it: the action of the
+/// next click, and the number — "Like", "Unlike, 1 like", "Like, 3 likes".
+fn like_label(lang: Lang, liked: bool, count: i64) -> String {
+    let action = lang.t(if liked { "unlike" } else { "like" });
+    match count {
+        0 => action.to_string(),
+        1 => format!("{action}, {}", lang.t("likes_one")),
+        n => format!("{action}, {n} {}", lang.t("likes_many")),
     }
 }
 
