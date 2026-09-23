@@ -758,6 +758,17 @@ pub fn notifications_page(
                                 }
                                 span class="byline" { (moment(*at)) }
                             }
+                            Entry::Likes { topic_id, topic_title, post_id, count, latest_name, at, .. } => {
+                                // The latest name leads, the rest is a
+                                // number: "cem and 2 others like your post".
+                                a href={ "/t/" (topic_id) "#p" (post_id) } {
+                                    span class="name" { (latest_name) } " "
+                                    @if *count == 1 { (lang.t("likes_your_post_in")) }
+                                    @else { (lang.t("and")) " " (count - 1) " " (lang.t("others_like_your_post_in")) }
+                                    " " b { (topic_title) }
+                                }
+                                span class="byline" { (moment(*at)) }
+                            }
                         }
                     }
                 }

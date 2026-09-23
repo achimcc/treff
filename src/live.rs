@@ -113,6 +113,23 @@ pub fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Va
             "unread": unread,
             "link": format!("{base}/t/{topic_id}#p{post_id}"),
         }),
+        Entry::Likes {
+            topic_id,
+            topic_title,
+            post_id,
+            count,
+            latest_name,
+            at,
+            unread,
+        } => serde_json::json!({
+            "kind": "likes",
+            "title": topic_title,
+            "count": count,
+            "author": latest_name,
+            "at": at,
+            "unread": unread,
+            "link": format!("{base}/t/{topic_id}#p{post_id}"),
+        }),
         Entry::Event {
             id,
             kind,

@@ -47,6 +47,17 @@ pub enum Entry {
         at: i64,
         unread: bool,
     },
+    /// People like this person's post — one line per post, the count and
+    /// the latest name read from `likes` when the bell is shown (ADR 0008).
+    Likes {
+        topic_id: i64,
+        topic_title: String,
+        post_id: i64,
+        count: i64,
+        latest_name: String,
+        at: i64,
+        unread: bool,
+    },
 }
 
 impl Entry {
@@ -54,6 +65,7 @@ impl Entry {
         match self {
             Entry::Replies { unread, .. }
             | Entry::Mention { unread, .. }
+            | Entry::Likes { unread, .. }
             | Entry::Event { unread, .. } => *unread,
         }
     }
@@ -61,7 +73,7 @@ impl Entry {
     pub fn at(&self) -> i64 {
         match self {
             Entry::Replies { latest_at, .. } => *latest_at,
-            Entry::Mention { at, .. } | Entry::Event { at, .. } => *at,
+            Entry::Mention { at, .. } | Entry::Likes { at, .. } | Entry::Event { at, .. } => *at,
         }
     }
 }
@@ -136,8 +148,9 @@ pub async fn note_mentions_in(
     Ok(told)
 }
 
-/// What the bell shows: unread mentions plus topics with unread replies —
-/// the same units the page lists, so the number and the list agree.
+/// What the bell shows: unread mentions, posts with unread likes, and
+/// topics with unread replies — the same units the page lists, so the
+/// number and the list agree.
 pub async fn unread_count(db: &Db, subject: &str, space: &str) -> anyhow::Result<i64> {
     // `hidden = 0` like every list: a withdrawn article is not something to
     // be called back to.
@@ -147,6 +160,7 @@ pub async fn unread_count(db: &Db, subject: &str, space: &str) -> anyhow::Result
     Ok(sqlx::query_scalar(
         "SELECT (SELECT count(DISTINCT CASE WHEN i.reason = 'reply' THEN i.topic_id END)
                       + count(CASE WHEN i.reason = 'mention' THEN 1 END)
+                      + count(CASE WHEN i.reason = 'like' THEN 1 END)
                    FROM inbox i JOIN topics t ON t.id = i.topic_id
                   WHERE i.subject = ?1 AND i.space = ?2 AND i.read_at IS NULL AND t.hidden = 0)
               + (SELECT count(*) FROM events e
@@ -207,6 +221,28 @@ pub async fn entries(
     .fetch_all(db.pool())
     .await?;
 
+    // The count and the latest name come from `likes` NOW, not from the
+    // entry: the line is then always as true as the number under the post.
+    // `n = 0` cannot follow a `toggle` (the entry goes with the last like)
+    // but can follow a restore; such a line is left out, not shown as
+    // "nobody likes your post".
+    let likes = sqlx::query(
+        "SELECT i.topic_id, i.post_id, i.created_at AS at, (i.read_at IS NULL) AS unread,
+                t.title AS title,
+                (SELECT count(*) FROM likes l WHERE l.post_id = i.post_id) AS n,
+                (SELECT name FROM likes l WHERE l.post_id = i.post_id
+                  ORDER BY l.created_at DESC, l.rowid DESC LIMIT 1) AS latest
+           FROM inbox i JOIN topics t ON t.id = i.topic_id
+          WHERE i.subject = ? AND i.space = ? AND i.reason = 'like' AND t.hidden = 0
+          ORDER BY unread DESC, i.created_at DESC
+          LIMIT ?",
+    )
+    .bind(subject)
+    .bind(space)
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await?;
+
     let events = sqlx::query(
         "SELECT id, kind, title, reason, created_at, (read_at IS NULL) AS unread
            FROM events
@@ -239,6 +275,19 @@ pub async fn entries(
             author: r.get("author"),
             at: r.get("at"),
             unread: r.get::<i64, _>("unread") != 0,
+        }))
+        .chain(likes.iter().filter_map(|r| {
+            let count: i64 = r.get("n");
+            let latest: Option<String> = r.get("latest");
+            Some(Entry::Likes {
+                topic_id: r.get("topic_id"),
+                topic_title: r.get("title"),
+                post_id: r.get("post_id"),
+                count: (count > 0).then_some(count)?,
+                latest_name: latest?,
+                at: r.get("at"),
+                unread: r.get::<i64, _>("unread") != 0,
+            })
         }))
         .chain(events.iter().filter_map(|r| {
             // A kind this version does not know is left out rather than

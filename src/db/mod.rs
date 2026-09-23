@@ -6,6 +6,7 @@ pub mod attachments;
 pub mod directory;
 pub mod events;
 pub mod inbox;
+pub mod likes;
 pub mod outbox;
 pub mod search;
 pub mod subscriptions;
