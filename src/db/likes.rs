@@ -196,6 +196,10 @@ mod tests {
     const FORUM: &str = "forum.example.org";
     const BLOG: &str = "blog.example.org";
 
+    fn only(space: &str) -> Vec<String> {
+        vec![space.to_string()]
+    }
+
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Db::open(&dir.path().join("t.db")).await.expect("open");
@@ -309,19 +313,19 @@ mod tests {
         toggle(&db, FORUM, p, &who("ben")).await.expect("like");
         toggle(&db, FORUM, p, &who("cem")).await.expect("like");
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ada", FORUM)
+            crate::db::inbox::unread_count(&db, "ada", &only(FORUM))
                 .await
                 .expect("count"),
             1,
             "two likes on one post are one line"
         );
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ben", FORUM)
+            crate::db::inbox::unread_count(&db, "ben", &only(FORUM))
                 .await
                 .expect("count"),
             0
         );
-        let list = crate::db::inbox::entries(&db, "ada", FORUM, 50)
+        let list = crate::db::inbox::entries(&db, "ada", &only(FORUM), 50)
             .await
             .expect("list");
         assert_eq!(list.len(), 1, "{list:?}");
@@ -356,14 +360,14 @@ mod tests {
             .await
             .expect("read");
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ada", FORUM)
+            crate::db::inbox::unread_count(&db, "ada", &only(FORUM))
                 .await
                 .expect("count"),
             0
         );
         toggle(&db, FORUM, p, &who("cem")).await.expect("like");
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ada", FORUM)
+            crate::db::inbox::unread_count(&db, "ada", &only(FORUM))
                 .await
                 .expect("count"),
             1,
@@ -379,7 +383,7 @@ mod tests {
         toggle(&db, FORUM, p, &who("cem")).await.expect("like");
         toggle(&db, FORUM, p, &who("ben")).await.expect("unlike");
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ada", FORUM)
+            crate::db::inbox::unread_count(&db, "ada", &only(FORUM))
                 .await
                 .expect("count"),
             1,
@@ -387,13 +391,13 @@ mod tests {
         );
         toggle(&db, FORUM, p, &who("cem")).await.expect("unlike");
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ada", FORUM)
+            crate::db::inbox::unread_count(&db, "ada", &only(FORUM))
                 .await
                 .expect("count"),
             0
         );
         assert!(
-            crate::db::inbox::entries(&db, "ada", FORUM, 50)
+            crate::db::inbox::entries(&db, "ada", &only(FORUM), 50)
                 .await
                 .expect("list")
                 .is_empty(),
@@ -414,7 +418,7 @@ mod tests {
             .expect("delete");
         assert_eq!(count(&db, p).await, 0);
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ben", FORUM)
+            crate::db::inbox::unread_count(&db, "ben", &only(FORUM))
                 .await
                 .expect("count"),
             0
@@ -435,7 +439,7 @@ mod tests {
             .expect("hide");
         assert_eq!(count(&db, p).await, 1);
         assert_eq!(
-            crate::db::inbox::unread_count(&db, "ada", FORUM)
+            crate::db::inbox::unread_count(&db, "ada", &only(FORUM))
                 .await
                 .expect("count"),
             0

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.0 — 2026-09-23
+
+**One bell everywhere.** Until now each host had its own bell: the forum's
+showed the forum's entries, the blog's the blog's, and the start page's the
+forum's. A like on a blog article rang a bell nobody was looking at. Now
+every bell — forum, blog, start page — shows the same entries: replies,
+mentions, likes and events from every space the person may read.
+
+- A link leads to the host its entry belongs to: relative on that host,
+  `https://<host>/…` everywhere else — on the page, in the overlay's JSON
+  and through the internal door, whose links are all absolute.
+- "Mark all as read" empties the whole bell, not one space's share of it.
+  Opening a topic still reads exactly that topic's entries.
+- The live stream wakes for a change in any space.
+- **The one boundary that stays is reading:** every query takes the list
+  of spaces the viewer's groups may read; an entry left in a space somebody
+  may no longer read is shown on no host. The internal door filters by the
+  groups the proxy sends, as before — and no longer needs `[events]` to be
+  configured to answer.
+- `db::inbox::{unread_count, entries, for_handle, mark_all_read}` take
+  `&[String]` spaces; `Entry` carries its `space`; `live::bell_stream` no
+  longer takes a space.
+
 ## 0.9.1 — 2026-09-23
 
 - **`articles_owner`** (NixOS: `services.treff.spaces.*.articlesOwner`): the

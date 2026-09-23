@@ -34,9 +34,17 @@ and it answers it where the reading happens. Neither replaces the other.
 - **Read** means: the topic was opened. Opening `/t/{id}` marks every entry
   of that topic as read for that person — replies and mentions alike. There
   is also a "mark all as read" button, a `POST`.
-- **Per space.** The bell on `forum.…` shows the forum's entries, the bell on
-  `blog.…` the blog's. Links stay relative to the host they are shown on, and
-  the space boundary stays what it is everywhere else: the `Host`.
+- **One bell everywhere** (0.10.0; until then: per space). The bell on
+  `forum.…`, the bell on `blog.…` and the bell on the operator's start page
+  show the same entries — replies, mentions, likes and events from every
+  space the person may read. The operator asked for it on 2026-09-23, after
+  likes on the blog's articles started ringing a bell nobody was looking at.
+  A link leads to the host its entry belongs to: relative on that host,
+  `https://<host>/…` everywhere else. "Mark all as read" empties the whole
+  bell. **The one boundary that stays is reading:** every query takes the
+  list of spaces the viewer's groups may read (`authz::may_read`), and an
+  entry left in a space somebody may no longer read is shown on no host —
+  the same fail-closed rule as for a mention.
 
 ### Posts are flat — so it says "replied in", not "replied to you"
 

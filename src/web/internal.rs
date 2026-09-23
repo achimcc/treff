@@ -202,14 +202,8 @@ async fn bell_stream(State(state): State<InternalState>, headers: HeaderMap) -> 
     if !presents(&headers, token) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let space = state
-        .config
-        .events
-        .as_ref()
-        .map(|e| e.space.clone())
-        .unwrap_or_default();
     let db = state.db.clone();
-    let stream = crate::live::bell_stream(&db, space, move || {
+    let stream = crate::live::bell_stream(&db, move || {
         let state = state.clone();
         let headers = headers.clone();
         async move { bell_for(&state, &headers).await }
@@ -225,14 +219,6 @@ pub async fn bell_for(
     headers: &HeaderMap,
 ) -> anyhow::Result<serde_json::Value> {
     let empty = serde_json::json!({ "unread": 0, "entries": [] });
-    let Some(space) = state
-        .config
-        .events
-        .as_ref()
-        .and_then(|e| state.config.space_for_host(&e.space))
-    else {
-        return Ok(empty);
-    };
     let header_text = |name: &str| {
         headers
             .get(name)
@@ -256,15 +242,24 @@ pub async fn bell_for(
         email: None,
         handle: Some(handle.clone()),
     };
-    if !crate::authz::may_read(&who, space) {
+    // ONE BELL EVERYWHERE (0.10.0): every space these groups may read, and
+    // nothing for somebody who may read none. The page this answers is not
+    // one of treff's hosts, so every link carries its own.
+    let spaces: Vec<String> = state
+        .config
+        .spaces
+        .iter()
+        .filter(|s| crate::authz::may_read(&who, s))
+        .map(|s| s.host.clone())
+        .collect();
+    if spaces.is_empty() {
         return Ok(empty);
     }
     let (unread, entries) =
-        crate::db::inbox::for_handle(&state.db, &handle, &space.host, BELL_ENTRIES).await?;
-    let base = format!("https://{}", space.host);
+        crate::db::inbox::for_handle(&state.db, &handle, &spaces, BELL_ENTRIES).await?;
     let entries: Vec<serde_json::Value> = entries
         .iter()
-        .map(|e| crate::live::entry_json(e, &base))
+        .map(|e| crate::live::entry_json(e, ""))
         .collect();
     Ok(serde_json::json!({ "unread": unread, "entries": entries }))
 }

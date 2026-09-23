@@ -578,7 +578,7 @@ async fn search_page(
 
     match crate::db::search::search(&app.db, &space.host, &categories, &query.q, PAGE_SIZE).await {
         Ok(hits) => {
-            let bell = bell(&app, &space, &who).await;
+            let bell = bell(&app, &who).await;
             crate::web::views::search_page(&space, &who, lang, bell, &query.q, &hits)
                 .into_response()
         }
@@ -659,14 +659,27 @@ async fn unsubscribe_now(
 /// A count that cannot be read is logged and shown as no number rather than
 /// failing the page: the page is what the person came for, and the bell is a
 /// hint about other pages. The list behind it fails loudly on its own.
-async fn bell(app: &AppState, space: &Space, who: &Identity) -> crate::web::views::Bell {
-    match crate::db::inbox::unread_count(&app.db, &who.subject, &space.host).await {
+async fn bell(app: &AppState, who: &Identity) -> crate::web::views::Bell {
+    match crate::db::inbox::unread_count(&app.db, &who.subject, &readable_spaces(app, who)).await {
         Ok(unread) => crate::web::views::Bell { unread },
         Err(e) => {
             tracing_error("cannot count unread notifications", &e);
             crate::web::views::Bell::default()
         }
     }
+}
+
+/// ONE BELL EVERYWHERE (0.10.0): the spaces whose entries this person's bell
+/// shows — every configured space their groups may read. The one boundary
+/// the bell keeps is reading: an entry left in a space somebody may no
+/// longer read is not shown on any host.
+fn readable_spaces(app: &AppState, who: &Identity) -> Vec<String> {
+    app.config
+        .spaces
+        .iter()
+        .filter(|s| crate::authz::may_read(who, s))
+        .map(|s| s.host.clone())
+        .collect()
 }
 
 /// How many lines the notifications page shows. Enough for a week away; a
@@ -682,16 +695,17 @@ async fn notifications(
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
     }
-    let entries =
-        match crate::db::inbox::entries(&app.db, &who.subject, &space.host, INBOX_PAGE).await {
-            Ok(e) => e,
-            Err(e) => return server_error("cannot list notifications", &e),
-        };
+    let spaces = readable_spaces(&app, &who);
+    let entries = match crate::db::inbox::entries(&app.db, &who.subject, &spaces, INBOX_PAGE).await
+    {
+        Ok(e) => e,
+        Err(e) => return server_error("cannot list notifications", &e),
+    };
     let mention_mail = match crate::db::accounts::wants_mention_mail(&app.db, &who.subject).await {
         Ok(on) => on,
         Err(e) => return server_error("cannot read a setting", &e),
     };
-    let bell = bell(&app, &space, &who).await;
+    let bell = bell(&app, &who).await;
     crate::web::views::notifications_page(&space, &who, lang, bell, &entries, mention_mail)
         .into_response()
 }
@@ -754,7 +768,9 @@ async fn notifications_json(
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
     }
-    match crate::live::bell_json(&app.db, &who.subject, &space.host, "", OVERLAY_ENTRIES).await {
+    let spaces = readable_spaces(&app, &who);
+    match crate::live::bell_json(&app.db, &who.subject, &spaces, &space.host, OVERLAY_ENTRIES).await
+    {
         Ok(body) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(body)).into_response(),
         Err(e) => server_error("cannot read the bell", &e),
     }
@@ -774,11 +790,13 @@ async fn notifications_stream(
     let db = app.db.clone();
     let host = space.host.clone();
     let subject = who.subject.clone();
-    let stream = crate::live::bell_stream(&app.db, space.host.clone(), move || {
+    let spaces = readable_spaces(&app, &who);
+    let stream = crate::live::bell_stream(&app.db, move || {
         let db = db.clone();
         let host = host.clone();
         let subject = subject.clone();
-        async move { crate::live::bell_json(&db, &subject, &host, "", OVERLAY_ENTRIES).await }
+        let spaces = spaces.clone();
+        async move { crate::live::bell_json(&db, &subject, &spaces, &host, OVERLAY_ENTRIES).await }
     });
     ([(header::CACHE_CONTROL, "no-store")], stream).into_response()
 }
@@ -810,7 +828,8 @@ async fn read_all(
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
     }
-    match crate::db::inbox::mark_all_read(&app.db, &who.subject, &space.host).await {
+    match crate::db::inbox::mark_all_read(&app.db, &who.subject, &readable_spaces(&app, &who)).await
+    {
         Ok(()) => Redirect::to("/notifications").into_response(),
         Err(e) => server_error("cannot mark notifications read", &e),
     }
@@ -908,7 +927,7 @@ async fn space_index(
                         .collect::<Vec<_>>(),
                     Err(e) => return server_error("cannot list recent topics", &e),
                 };
-            let bell = bell(&app, &space, &who).await;
+            let bell = bell(&app, &who).await;
             crate::web::views::category_index(&space, &who, lang, bell, &rows, &recent)
                 .into_response()
         }
@@ -993,7 +1012,7 @@ async fn render_space(
         Ok(o) => o,
         Err(e) => return server_error("cannot look up the articles owner", &e),
     };
-    let bell = bell(app, space, who).await;
+    let bell = bell(app, who).await;
     crate::web::views::space_page(
         space,
         who,
@@ -1034,7 +1053,7 @@ async fn topic_page(
             {
                 tracing_error("cannot mark a topic read", &e);
             }
-            let bell = bell(&app, &space, &who).await;
+            let bell = bell(&app, &who).await;
             // Highlighted by the same rule that decides who is told — see
             // `mentions` for why that has to be one answer and not two.
             let highlighted = match crate::mentions::highlighted(
@@ -1361,7 +1380,7 @@ async fn delete_question(
     if !crate::authz::may_modify(&who, &post.author_subject) {
         return forbidden();
     }
-    let bell = bell(&app, &space, &who).await;
+    let bell = bell(&app, &who).await;
     crate::web::views::delete_question_page(&space, &who, lang, bell, &post).into_response()
 }
 

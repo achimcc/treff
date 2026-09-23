@@ -1,9 +1,10 @@
 //! The bell, live: one Server-Sent Events stream per open page.
 //!
 //! A stream sends the bell once on connect, and again whenever the database
-//! says something in its space changed (`Db::changed`, announced after every
-//! commit that can change somebody's unread) — but only if the answer is
-//! different from the last one it sent. A change for somebody else therefore
+//! says something changed anywhere (`Db::changed`, announced after every
+//! commit that can change somebody's unread; since 0.10.0 one bell shows
+//! every space, so every space's change is asked after) — but only if the
+//! answer is different from the last one it sent. A change for somebody else therefore
 //! costs one query and sends nothing: not even "still 0", which would tell a
 //! watcher that something happened to someone.
 
@@ -19,7 +20,6 @@ const KEEP_ALIVE: std::time::Duration = std::time::Duration::from_secs(25);
 
 pub fn bell_stream<F, Fut>(
     db: &Db,
-    space: String,
     compute: F,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>> + use<F, Fut>>
 where
@@ -28,14 +28,12 @@ where
 {
     struct State<F> {
         changes: tokio::sync::broadcast::Receiver<String>,
-        space: String,
         compute: F,
         last: Option<String>,
         first: bool,
     }
     let state = State {
         changes: db.changes(),
-        space,
         compute,
         last: None,
         first: true,
@@ -45,8 +43,9 @@ where
             if !st.first {
                 use tokio::sync::broadcast::error::RecvError;
                 match st.changes.recv().await {
-                    Ok(s) if s == st.space || s == crate::db::EVERY_SPACE => {}
-                    Ok(_) => continue,
+                    // Whatever space changed: the bell shows them all, and
+                    // the query decides whether this person's answer moved.
+                    Ok(_) => {}
                     // Fell behind: something changed, and what exactly is
                     // lost. Asking again is the whole answer.
                     Err(RecvError::Lagged(_)) => {}
@@ -74,16 +73,29 @@ where
     Sse::new(stream).keep_alive(KeepAlive::new().interval(KEEP_ALIVE))
 }
 
+/// Where an entry's link starts: nothing on the host the entry belongs to,
+/// `https://<its host>` everywhere else — the start page (`current_host`
+/// empty) gets every link absolute.
+pub fn link_base(entry_space: &str, current_host: &str) -> String {
+    if entry_space == current_host {
+        String::new()
+    } else {
+        format!("https://{entry_space}")
+    }
+}
+
 /// One entry as a page outside the list draws it — the start page, and the
 /// overlay under the bell. Words are the page's business; this
 /// carries the facts and a link that leads through the forum, where reading
-/// marks things read.
-pub fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Value {
+/// marks things read. `current_host` is the host the page is shown on.
+pub fn entry_json(entry: &crate::db::inbox::Entry, current_host: &str) -> serde_json::Value {
     use crate::db::inbox::Entry;
+    let base = link_base(entry.space(), current_host);
     match entry {
         Entry::Replies {
             topic_id,
             topic_title,
+            space: _,
             count,
             latest_author,
             latest_at,
@@ -103,6 +115,7 @@ pub fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Va
             topic_title,
             post_id,
             author,
+            space: _,
             at,
             unread,
         } => serde_json::json!({
@@ -118,6 +131,7 @@ pub fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Va
             topic_title,
             post_id,
             count,
+            space: _,
             latest_name,
             at,
             unread,
@@ -137,6 +151,7 @@ pub fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Va
             reason,
             at,
             unread,
+            space: _,
         } => serde_json::json!({
             "kind": kind.as_str(),
             "title": title,
@@ -148,18 +163,21 @@ pub fn entry_json(entry: &crate::db::inbox::Entry, base: &str) -> serde_json::Va
     }
 }
 
-/// The bell of an account, as JSON: the number and the entries, with links
-/// under `base` (`""` for links on the same host, `https://<space>` for a
-/// page elsewhere).
+/// The bell of an account, as JSON: the number and the entries over
+/// `spaces` (the ones this person may read), with links relative on
+/// `current_host` and absolute everywhere else.
 pub async fn bell_json(
     db: &crate::db::Db,
     subject: &str,
-    space: &str,
-    base: &str,
+    spaces: &[String],
+    current_host: &str,
     limit: i64,
 ) -> anyhow::Result<serde_json::Value> {
-    let unread = crate::db::inbox::unread_count(db, subject, space).await?;
-    let entries = crate::db::inbox::entries(db, subject, space, limit).await?;
-    let entries: Vec<serde_json::Value> = entries.iter().map(|e| entry_json(e, base)).collect();
+    let unread = crate::db::inbox::unread_count(db, subject, spaces).await?;
+    let entries = crate::db::inbox::entries(db, subject, spaces, limit).await?;
+    let entries: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| entry_json(e, current_host))
+        .collect();
     Ok(serde_json::json!({ "unread": unread, "entries": entries }))
 }

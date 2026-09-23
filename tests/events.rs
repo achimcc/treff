@@ -156,9 +156,11 @@ async fn mark_all_as_read_includes_events() {
     assert_eq!(badge(&page(&app, "/", &konrad).await), None);
 }
 
-/// Events belong to the events space. The blog's bell does not ring for them.
+/// Events belong to the events space — and since 0.10.0 one bell shows every
+/// space: the blog rings for them too, and its link leads to the forum's
+/// door, which marks the event read and leads on.
 #[tokio::test]
-async fn the_blog_does_not_ring_for_the_forums_events() {
+async fn the_blog_rings_for_the_forums_events_and_links_there() {
     let (dir, db, app) = setup_with_db().await;
     let konrad = signed_in(&db, dir.path(), "konrad", &["Household"]).await;
     event(&db, "konrad", "film_available", "Dune", "seerr:1").await;
@@ -166,7 +168,7 @@ async fn the_blog_does_not_ring_for_the_forums_events() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/")
+                .uri("/notifications")
                 .header("host", "blog.example.org")
                 .header("cookie", &konrad)
                 .body(Body::empty())
@@ -174,5 +176,10 @@ async fn the_blog_does_not_ring_for_the_forums_events() {
         )
         .await
         .expect("response");
-    assert_eq!(badge(&body_of(blog).await), None);
+    let html = body_of(blog).await;
+    assert_eq!(badge(&html).as_deref(), Some("1"));
+    assert!(
+        html.contains(r#"href="https://forum.example.org/notifications/e/"#),
+        "{html}"
+    );
 }

@@ -68,7 +68,7 @@ fn urlencode(s: &str) -> String {
 }
 
 async fn entries(db: &treff::db::Db, subject: &str) -> Vec<treff::db::inbox::Entry> {
-    treff::db::inbox::entries(db, subject, FORUM, 50)
+    treff::db::inbox::entries(db, subject, &[FORUM.to_string()], 50)
         .await
         .expect("entries")
 }

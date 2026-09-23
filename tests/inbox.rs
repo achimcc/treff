@@ -176,6 +176,17 @@ async fn mark_all_as_read_empties_the_bell() {
     treff::db::topics::add_reply(&db, t, "one", &person("ben"))
         .await
         .expect("reply");
+    // And one on the blog: "mark all as read" means all, wherever it stands.
+    let b = treff::db::topics::create_topic(&db, BLOG, "notes", "N", "B", &person("ada"))
+        .await
+        .expect("topic");
+    treff::db::topics::add_reply(&db, b, "two", &person("ben"))
+        .await
+        .expect("reply");
+    assert_eq!(
+        badge(&page(&app, FORUM, "/", &ada).await).as_deref(),
+        Some("2")
+    );
 
     let response = app
         .clone()
@@ -191,31 +202,100 @@ async fn mark_all_as_read_empties_the_bell() {
         Some("/notifications")
     );
     assert_eq!(badge(&page(&app, FORUM, "/", &ada).await), None);
+    assert_eq!(
+        badge(&page(&app, BLOG, "/", &ada).await),
+        None,
+        "the blog too"
+    );
 }
 
-/// Each host has its own bell. What happened on the blog is not counted on
-/// the forum, and the link it would lead to does not exist here.
+/// ONE BELL EVERYWHERE (0.10.0). What happened on the blog is counted on the
+/// forum too, and its link carries the blog's host; on the blog itself the
+/// same entry links relatively.
 #[tokio::test]
-async fn the_other_space_rings_its_own_bell() {
+async fn every_bell_shows_the_same_entries() {
     let (dir, db, app) = setup_with_db().await;
     let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
     let t = treff::db::topics::create_topic(&db, BLOG, "notes", "Note", "B", &person("ada"))
         .await
         .expect("topic");
-    treff::db::topics::add_reply(&db, t, "a comment", &person("ben"))
+    let p = treff::db::topics::add_reply(&db, t, "a comment", &person("ben"))
         .await
         .expect("reply");
 
-    assert_eq!(badge(&page(&app, FORUM, "/", &ada).await), None);
-    assert!(
-        !page(&app, FORUM, "/notifications", &ada)
-            .await
-            .contains("Note")
-    );
     assert_eq!(
-        badge(&page(&app, BLOG, "/", &ada).await).as_deref(),
+        badge(&page(&app, FORUM, "/", &ada).await).as_deref(),
         Some("1")
     );
+    let forum = page(&app, FORUM, "/notifications", &ada).await;
+    assert!(
+        forum.contains(&format!(r##"href="https://blog.example.org/t/{t}#p{p}""##)),
+        "{forum}"
+    );
+    let blog = page(&app, BLOG, "/notifications", &ada).await;
+    assert_eq!(badge(&blog).as_deref(), Some("1"));
+    assert!(blog.contains(&format!(r##"href="/t/{t}#p{p}""##)), "{blog}");
+    assert!(!blog.contains("https://blog.example.org/t/"), "{blog}");
+
+    // The overlay's JSON says the same, host and all.
+    let response = app
+        .clone()
+        .oneshot(get(FORUM, "/notifications.json", &ada))
+        .await
+        .expect("response");
+    let json: serde_json::Value = serde_json::from_str(&body_of(response).await).expect("json");
+    assert_eq!(json["unread"], 1);
+    assert_eq!(
+        json["entries"][0]["link"],
+        format!("https://blog.example.org/t/{t}#p{p}")
+    );
+}
+
+/// The one boundary that stays: a space this person may not read stays out
+/// of every bell, whatever entries are left there from a time they could.
+#[tokio::test]
+async fn a_space_you_may_not_read_stays_out_of_the_bell() {
+    let (dir, db, _) = setup_with_db().await;
+    let config = format!(
+        "{}\n[[space]]\nhost = \"secret.example.org\"\ntitle = \"S\"\nview = \"topics\"\nread = [\"Household\"]\n\n  [[space.category]]\n  slug = \"s\"\n  title = \"S\"\n  post = [\"Household\"]\n  reply = [\"Household\"]\n",
+        common::CONFIGURATION
+    );
+    let state = treff::web::AppState::new(
+        treff::config::Config::parse(&config).expect("configuration"),
+        db.clone(),
+        treff::auth::OidcSettings {
+            issuer: "http://127.0.0.1:1/".into(),
+            client_id: "t".into(),
+            client_secret: "t".into(),
+            group_claim: "groups".into(),
+        },
+        dir.path(),
+    )
+    .expect("state");
+    let app = treff::web::router(state);
+    // ben wrote in the secret space once (and so follows the topic); now he
+    // is only a Friend, and the secret space is for the Household.
+    let t = treff::db::topics::create_topic(
+        &db,
+        "secret.example.org",
+        "s",
+        "Secret",
+        "B",
+        &person("ada"),
+    )
+    .await
+    .expect("topic");
+    treff::db::topics::add_reply(&db, t, "was here", &person("ben"))
+        .await
+        .expect("reply");
+    treff::db::topics::add_reply(&db, t, "still here", &person("ada"))
+        .await
+        .expect("reply");
+    let ben = signed_in(&db, dir.path(), "ben", &["Friends"]).await;
+    assert_eq!(badge(&page(&app, FORUM, "/", &ben).await), None);
+    let list = page(&app, FORUM, "/notifications", &ben).await;
+    let list = list.split("<main").nth(1).expect("a main element");
+    assert!(!list.contains("Secret"), "{list}");
 }
 
 /// Somebody who may not read the space has no bell to look at.

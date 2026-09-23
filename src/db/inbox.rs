@@ -4,6 +4,11 @@
 //! the reason the outbox is: a reply that exists while its entry does not is a
 //! reply nobody is shown, and nothing later can tell that it happened.
 //!
+//! **One bell everywhere (0.10.0).** Every query here takes the LIST of
+//! spaces to read — the caller passes the ones this person may read, and
+//! the bell on any host shows the same entries. An entry carries its
+//! `space`, so a page can link to it on the host it belongs to.
+//!
 //! **Replies are bundled per topic, mentions stand alone.** Three answers in
 //! one lively thread are one line ("3 new replies in …"), because a list that
 //! grows by one line per answer stops being "everything at a glance". A
@@ -18,6 +23,7 @@ use sqlx::Row;
 pub enum Entry {
     /// New posts in a topic this person follows.
     Replies {
+        space: String,
         topic_id: i64,
         topic_title: String,
         count: i64,
@@ -31,6 +37,7 @@ pub enum Entry {
     /// Something happened elsewhere for this person — a film request came
     /// through or failed (`db::events`).
     Event {
+        space: String,
         id: i64,
         kind: crate::db::events::Kind,
         title: String,
@@ -40,6 +47,7 @@ pub enum Entry {
     },
     /// Somebody wrote `@handle` for this person.
     Mention {
+        space: String,
         topic_id: i64,
         topic_title: String,
         post_id: i64,
@@ -50,6 +58,7 @@ pub enum Entry {
     /// People like this person's post — one line per post, the count and
     /// the latest name read from `likes` when the bell is shown (ADR 0008).
     Likes {
+        space: String,
         topic_id: i64,
         topic_title: String,
         post_id: i64,
@@ -76,6 +85,22 @@ impl Entry {
             Entry::Mention { at, .. } | Entry::Likes { at, .. } | Entry::Event { at, .. } => *at,
         }
     }
+
+    /// The host this entry belongs to — where its link leads.
+    pub fn space(&self) -> &str {
+        match self {
+            Entry::Replies { space, .. }
+            | Entry::Mention { space, .. }
+            | Entry::Likes { space, .. }
+            | Entry::Event { space, .. } => space,
+        }
+    }
+}
+
+/// The spaces as one bound parameter, for `IN (SELECT value FROM json_each(?))`
+/// — one statement whatever the number, like `accounts::handles_of`.
+fn json_list(spaces: &[String]) -> anyhow::Result<String> {
+    Ok(serde_json::to_string(spaces)?)
 }
 
 /// One `reply` entry per follower of the topic except the writer, inside the
@@ -151,7 +176,7 @@ pub async fn note_mentions_in(
 /// What the bell shows: unread mentions, posts with unread likes, and
 /// topics with unread replies — the same units the page lists, so the
 /// number and the list agree.
-pub async fn unread_count(db: &Db, subject: &str, space: &str) -> anyhow::Result<i64> {
+pub async fn unread_count(db: &Db, subject: &str, spaces: &[String]) -> anyhow::Result<i64> {
     // `hidden = 0` like every list: a withdrawn article is not something to
     // be called back to.
     //
@@ -162,13 +187,14 @@ pub async fn unread_count(db: &Db, subject: &str, space: &str) -> anyhow::Result
                       + count(CASE WHEN i.reason = 'mention' THEN 1 END)
                       + count(CASE WHEN i.reason = 'like' THEN 1 END)
                    FROM inbox i JOIN topics t ON t.id = i.topic_id
-                  WHERE i.subject = ?1 AND i.space = ?2 AND i.read_at IS NULL AND t.hidden = 0)
+                  WHERE i.subject = ?1 AND i.space IN (SELECT value FROM json_each(?2))
+                    AND i.read_at IS NULL AND t.hidden = 0)
               + (SELECT count(*) FROM events e
                   WHERE e.handle = (SELECT handle FROM accounts WHERE subject = ?1)
-                    AND e.space = ?2 AND e.read_at IS NULL)",
+                    AND e.space IN (SELECT value FROM json_each(?2)) AND e.read_at IS NULL)",
     )
     .bind(subject)
-    .bind(space)
+    .bind(json_list(spaces)?)
     .fetch_one(db.pool())
     .await?)
 }
@@ -177,21 +203,23 @@ pub async fn unread_count(db: &Db, subject: &str, space: &str) -> anyhow::Result
 pub async fn entries(
     db: &Db,
     subject: &str,
-    space: &str,
+    spaces: &[String],
     limit: i64,
 ) -> anyhow::Result<Vec<Entry>> {
     let limit = limit.clamp(1, 200);
+    let spaces = json_list(spaces)?;
 
     // A bundle is a topic AND a read state. Read and unread replies of the
     // same topic are two lines: after reading, "1 new reply" is the truth,
     // and "2 replies, one of which you saw" is not a notification.
     let bundles = sqlx::query(
         "WITH b AS (
-             SELECT i.topic_id, (i.read_at IS NULL) AS unread, count(*) AS n,
+             SELECT i.topic_id, i.space, (i.read_at IS NULL) AS unread, count(*) AS n,
                     min(i.post_id) AS first_post, max(i.post_id) AS last_post,
                     max(i.created_at) AS at
                FROM inbox i JOIN topics t ON t.id = i.topic_id
-              WHERE i.subject = ? AND i.space = ? AND i.reason = 'reply' AND t.hidden = 0
+              WHERE i.subject = ? AND i.space IN (SELECT value FROM json_each(?))
+                AND i.reason = 'reply' AND t.hidden = 0
               GROUP BY i.topic_id, (i.read_at IS NULL)
          )
          SELECT b.*, t.title AS title, p.author_name AS author
@@ -201,22 +229,23 @@ pub async fn entries(
           LIMIT ?",
     )
     .bind(subject)
-    .bind(space)
+    .bind(&spaces)
     .bind(limit)
     .fetch_all(db.pool())
     .await?;
 
     let mentions = sqlx::query(
-        "SELECT i.topic_id, i.post_id, i.created_at AS at, (i.read_at IS NULL) AS unread,
+        "SELECT i.topic_id, i.space, i.post_id, i.created_at AS at, (i.read_at IS NULL) AS unread,
                 t.title AS title, p.author_name AS author
            FROM inbox i JOIN topics t ON t.id = i.topic_id
                         JOIN posts  p ON p.id = i.post_id
-          WHERE i.subject = ? AND i.space = ? AND i.reason = 'mention' AND t.hidden = 0
+          WHERE i.subject = ? AND i.space IN (SELECT value FROM json_each(?))
+            AND i.reason = 'mention' AND t.hidden = 0
           ORDER BY unread DESC, i.created_at DESC
           LIMIT ?",
     )
     .bind(subject)
-    .bind(space)
+    .bind(&spaces)
     .bind(limit)
     .fetch_all(db.pool())
     .await?;
@@ -227,32 +256,33 @@ pub async fn entries(
     // but can follow a restore; such a line is left out, not shown as
     // "nobody likes your post".
     let likes = sqlx::query(
-        "SELECT i.topic_id, i.post_id, i.created_at AS at, (i.read_at IS NULL) AS unread,
+        "SELECT i.topic_id, i.space, i.post_id, i.created_at AS at, (i.read_at IS NULL) AS unread,
                 t.title AS title,
                 (SELECT count(*) FROM likes l WHERE l.post_id = i.post_id) AS n,
                 (SELECT name FROM likes l WHERE l.post_id = i.post_id
                   ORDER BY l.created_at DESC, l.rowid DESC LIMIT 1) AS latest
            FROM inbox i JOIN topics t ON t.id = i.topic_id
-          WHERE i.subject = ? AND i.space = ? AND i.reason = 'like' AND t.hidden = 0
+          WHERE i.subject = ? AND i.space IN (SELECT value FROM json_each(?))
+            AND i.reason = 'like' AND t.hidden = 0
           ORDER BY unread DESC, i.created_at DESC
           LIMIT ?",
     )
     .bind(subject)
-    .bind(space)
+    .bind(&spaces)
     .bind(limit)
     .fetch_all(db.pool())
     .await?;
 
     let events = sqlx::query(
-        "SELECT id, kind, title, reason, created_at, (read_at IS NULL) AS unread
+        "SELECT id, space, kind, title, reason, created_at, (read_at IS NULL) AS unread
            FROM events
           WHERE handle = (SELECT handle FROM accounts WHERE subject = ?)
-            AND space = ?
+            AND space IN (SELECT value FROM json_each(?))
           ORDER BY unread DESC, created_at DESC
           LIMIT ?",
     )
     .bind(subject)
-    .bind(space)
+    .bind(&spaces)
     .bind(limit)
     .fetch_all(db.pool())
     .await?;
@@ -260,6 +290,7 @@ pub async fn entries(
     let mut out: Vec<Entry> = bundles
         .iter()
         .map(|r| Entry::Replies {
+            space: r.get("space"),
             topic_id: r.get("topic_id"),
             topic_title: r.get("title"),
             count: r.get("n"),
@@ -269,6 +300,7 @@ pub async fn entries(
             unread: r.get::<i64, _>("unread") != 0,
         })
         .chain(mentions.iter().map(|r| Entry::Mention {
+            space: r.get("space"),
             topic_id: r.get("topic_id"),
             topic_title: r.get("title"),
             post_id: r.get("post_id"),
@@ -280,6 +312,7 @@ pub async fn entries(
             let count: i64 = r.get("n");
             let latest: Option<String> = r.get("latest");
             Some(Entry::Likes {
+                space: r.get("space"),
                 topic_id: r.get("topic_id"),
                 topic_title: r.get("title"),
                 post_id: r.get("post_id"),
@@ -295,6 +328,7 @@ pub async fn entries(
             // impossible today; a downgrade would not).
             let kind = crate::db::events::Kind::parse(r.get("kind"))?;
             Some(Entry::Event {
+                space: r.get("space"),
                 id: r.get("id"),
                 kind,
                 title: r.get("title"),
@@ -317,27 +351,29 @@ pub async fn entries(
 pub async fn for_handle(
     db: &Db,
     handle: &str,
-    space: &str,
+    spaces: &[String],
     limit: i64,
 ) -> anyhow::Result<(i64, Vec<Entry>)> {
     if let Some(subject) = crate::db::accounts::subject_of_handle(db, handle).await? {
-        let unread = unread_count(db, &subject, space).await?;
-        return Ok((unread, entries(db, &subject, space, limit).await?));
+        let unread = unread_count(db, &subject, spaces).await?;
+        return Ok((unread, entries(db, &subject, spaces, limit).await?));
     }
+    let spaces = json_list(spaces)?;
     let unread: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM events WHERE handle = ? AND space = ? AND read_at IS NULL",
+        "SELECT count(*) FROM events
+          WHERE handle = ? AND space IN (SELECT value FROM json_each(?)) AND read_at IS NULL",
     )
     .bind(handle)
-    .bind(space)
+    .bind(&spaces)
     .fetch_one(db.pool())
     .await?;
     let rows = sqlx::query(
-        "SELECT id, kind, title, reason, created_at, (read_at IS NULL) AS unread
-           FROM events WHERE handle = ? AND space = ?
+        "SELECT id, space, kind, title, reason, created_at, (read_at IS NULL) AS unread
+           FROM events WHERE handle = ? AND space IN (SELECT value FROM json_each(?))
           ORDER BY unread DESC, created_at DESC LIMIT ?",
     )
     .bind(handle)
-    .bind(space)
+    .bind(&spaces)
     .bind(limit.clamp(1, 200))
     .fetch_all(db.pool())
     .await?;
@@ -345,6 +381,7 @@ pub async fn for_handle(
         .iter()
         .filter_map(|r| {
             Some(Entry::Event {
+                space: r.get("space"),
                 id: r.get("id"),
                 kind: crate::db::events::Kind::parse(r.get("kind"))?,
                 title: r.get("title"),
@@ -372,25 +409,31 @@ pub async fn mark_topic_read(db: &Db, subject: &str, topic_id: i64) -> anyhow::R
     Ok(())
 }
 
-pub async fn mark_all_read(db: &Db, subject: &str, space: &str) -> anyhow::Result<()> {
+/// "Mark all as read" — all, in every space given: one bell everywhere
+/// means one button empties it everywhere.
+pub async fn mark_all_read(db: &Db, subject: &str, spaces: &[String]) -> anyhow::Result<()> {
     let now = crate::db::topics::now();
-    sqlx::query("UPDATE inbox SET read_at = ? WHERE subject = ? AND space = ? AND read_at IS NULL")
-        .bind(now)
-        .bind(subject)
-        .bind(space)
-        .execute(db.pool())
-        .await?;
+    let list = json_list(spaces)?;
     sqlx::query(
-        "UPDATE events SET read_at = ?
-          WHERE handle = (SELECT handle FROM accounts WHERE subject = ?)
-            AND space = ? AND read_at IS NULL",
+        "UPDATE inbox SET read_at = ?
+          WHERE subject = ? AND space IN (SELECT value FROM json_each(?)) AND read_at IS NULL",
     )
     .bind(now)
     .bind(subject)
-    .bind(space)
+    .bind(&list)
     .execute(db.pool())
     .await?;
-    db.changed(space);
+    sqlx::query(
+        "UPDATE events SET read_at = ?
+          WHERE handle = (SELECT handle FROM accounts WHERE subject = ?)
+            AND space IN (SELECT value FROM json_each(?)) AND read_at IS NULL",
+    )
+    .bind(now)
+    .bind(subject)
+    .bind(&list)
+    .execute(db.pool())
+    .await?;
+    db.changed(crate::db::EVERY_SPACE);
     Ok(())
 }
 
@@ -400,6 +443,15 @@ mod tests {
     use crate::authz::Identity;
 
     const FORUM: &str = "forum.example.org";
+    const BLOG: &str = "blog.example.org";
+
+    fn only(space: &str) -> Vec<String> {
+        vec![space.to_string()]
+    }
+
+    fn both() -> Vec<String> {
+        vec![FORUM.to_string(), BLOG.to_string()]
+    }
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -435,9 +487,12 @@ mod tests {
         let (_d, db) = db().await;
         let t = topic(&db, FORUM, "T", "ada").await;
         reply(&db, t, "ada").await;
-        assert_eq!(unread_count(&db, "ada", FORUM).await.expect("count"), 0);
+        assert_eq!(
+            unread_count(&db, "ada", &only(FORUM)).await.expect("count"),
+            0
+        );
         assert!(
-            entries(&db, "ada", FORUM, 50)
+            entries(&db, "ada", &only(FORUM), 50)
                 .await
                 .expect("list")
                 .is_empty()
@@ -454,8 +509,11 @@ mod tests {
         reply(&db, t, "cem").await;
         reply(&db, t, "ben").await;
 
-        assert_eq!(unread_count(&db, "ada", FORUM).await.expect("count"), 1);
-        let list = entries(&db, "ada", FORUM, 50).await.expect("list");
+        assert_eq!(
+            unread_count(&db, "ada", &only(FORUM)).await.expect("count"),
+            1
+        );
+        let list = entries(&db, "ada", &only(FORUM), 50).await.expect("list");
         assert_eq!(list.len(), 1, "{list:?}");
         match &list[0] {
             Entry::Replies {
@@ -485,11 +543,17 @@ mod tests {
         let b = topic(&db, FORUM, "B", "ada").await;
         reply(&db, a, "ben").await;
         reply(&db, b, "ben").await;
-        assert_eq!(unread_count(&db, "ada", FORUM).await.expect("count"), 2);
+        assert_eq!(
+            unread_count(&db, "ada", &only(FORUM)).await.expect("count"),
+            2
+        );
 
         mark_topic_read(&db, "ada", a).await.expect("read");
-        assert_eq!(unread_count(&db, "ada", FORUM).await.expect("count"), 1);
-        let list = entries(&db, "ada", FORUM, 50).await.expect("list");
+        assert_eq!(
+            unread_count(&db, "ada", &only(FORUM)).await.expect("count"),
+            1
+        );
+        let list = entries(&db, "ada", &only(FORUM), 50).await.expect("list");
         assert_eq!(list.len(), 2, "the read one stays, below: {list:?}");
         assert!(list[0].unread(), "unread first: {list:?}");
         assert!(!list[1].unread());
@@ -497,7 +561,7 @@ mod tests {
         // A reply after reading starts a NEW bundle rather than reviving the
         // read one: "1 new reply", not "2 replies, one of which you saw".
         reply(&db, a, "cem").await;
-        let list = entries(&db, "ada", FORUM, 50).await.expect("list");
+        let list = entries(&db, "ada", &only(FORUM), 50).await.expect("list");
         let unread_a: Vec<_> = list
             .iter()
             .filter(|e| {
@@ -516,30 +580,44 @@ mod tests {
         reply(&db, f, "ben").await;
         reply(&db, b, "ben").await;
 
-        mark_all_read(&db, "ada", FORUM).await.expect("read");
-        assert_eq!(unread_count(&db, "ada", FORUM).await.expect("count"), 0);
+        mark_all_read(&db, "ada", &only(FORUM)).await.expect("read");
         assert_eq!(
-            unread_count(&db, "ada", "blog.example.org")
-                .await
-                .expect("count"),
+            unread_count(&db, "ada", &only(FORUM)).await.expect("count"),
+            0
+        );
+        assert_eq!(
+            unread_count(&db, "ada", &only(BLOG)).await.expect("count"),
             1,
-            "the other space is not this button's business"
+            "only the spaces given are read"
         );
     }
 
-    /// THE SPACE IS PART OF EVERY QUERY. The bell on one host must not count
-    /// or list what happened on the other.
+    /// THE SPACES ARE PART OF EVERY QUERY: exactly the ones given are read,
+    /// no more — the caller decides which a person may see. With both, the
+    /// blog's comment shows on the forum's bell, and says where it is from.
     #[tokio::test]
-    async fn another_space_is_neither_counted_nor_listed() {
+    async fn only_the_spaces_given_are_counted_and_listed() {
         let (_d, db) = db().await;
-        let b = topic(&db, "blog.example.org", "B", "ada").await;
+        let b = topic(&db, BLOG, "B", "ada").await;
         reply(&db, b, "ben").await;
-        assert_eq!(unread_count(&db, "ada", FORUM).await.expect("count"), 0);
+        assert_eq!(
+            unread_count(&db, "ada", &only(FORUM)).await.expect("count"),
+            0
+        );
         assert!(
-            entries(&db, "ada", FORUM, 50)
+            entries(&db, "ada", &only(FORUM), 50)
                 .await
                 .expect("list")
                 .is_empty()
+        );
+        assert_eq!(unread_count(&db, "ada", &both()).await.expect("count"), 1);
+        let list = entries(&db, "ada", &both(), 50).await.expect("list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].space(), BLOG);
+        assert_eq!(
+            unread_count(&db, "ada", &[]).await.expect("count"),
+            0,
+            "nothing is nothing"
         );
     }
 
@@ -553,6 +631,9 @@ mod tests {
         crate::db::topics::delete_post(&db, FORUM, p, &who("ben"))
             .await
             .expect("delete");
-        assert_eq!(unread_count(&db, "ada", FORUM).await.expect("count"), 0);
+        assert_eq!(
+            unread_count(&db, "ada", &only(FORUM)).await.expect("count"),
+            0
+        );
     }
 }

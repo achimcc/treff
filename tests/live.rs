@@ -124,10 +124,34 @@ async fn the_stream_follows_a_reply_a_mention_an_event_and_a_read() {
         .expect("take");
     assert_eq!(next(&mut s).await.expect("after an event")["unread"], 3);
 
-    treff::db::inbox::mark_all_read(&db, "ada", FORUM)
+    treff::db::inbox::mark_all_read(&db, "ada", &[FORUM.to_string()])
         .await
         .expect("read");
     assert_eq!(next(&mut s).await.expect("after reading")["unread"], 0);
+}
+
+/// One bell everywhere: a page open on the forum hears about the blog.
+#[tokio::test]
+async fn a_forum_stream_follows_the_blog() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let topic =
+        treff::db::topics::create_topic(&db, "blog.example.org", "notes", "N", "B", &person("ada"))
+            .await
+            .expect("topic");
+    let mut s = stream(&app, &ada).await;
+    assert_eq!(next(&mut s).await.expect("on connect")["unread"], 0);
+    treff::db::topics::add_reply(&db, topic, "a comment", &person("ben"))
+        .await
+        .expect("reply");
+    let frame = next(&mut s).await.expect("after a blog reply");
+    assert_eq!(frame["unread"], 1);
+    assert!(
+        frame["entries"][0]["link"]
+            .as_str()
+            .is_some_and(|l| l.starts_with("https://blog.example.org/t/")),
+        "{frame}"
+    );
 }
 
 /// Somebody else's news is not sent to you — not even as "still 0".

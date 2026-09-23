@@ -916,9 +916,12 @@ pub fn notifications_page(
             }
             ul class="topics inbox" {
                 @for entry in entries {
+                    // Where the link starts: nothing on this host, the
+                    // entry's own host everywhere else (one bell, 0.10.0).
+                    @let base = crate::live::link_base(entry.space(), &space.host);
                     li class=(if entry.unread() { "new" } else { "seen" }) {
                         @match entry {
-                            Entry::Replies { topic_id, topic_title, count, latest_author, latest_at, first_post_id, unread } => {
+                            Entry::Replies { topic_id, topic_title, count, latest_author, latest_at, first_post_id, unread, .. } => {
                                 // "new" only while it is: a bundle that was
                                 // read says how many there were, not that they
                                 // are waiting.
@@ -928,7 +931,7 @@ pub fn notifications_page(
                                     (false, true) => "reply_in",
                                     (false, false) => "replies_in",
                                 };
-                                a href={ "/t/" (topic_id) "#p" (first_post_id) } {
+                                a href={ (base) "/t/" (topic_id) "#p" (first_post_id) } {
                                     (count) " " (lang.t(key))
                                     " " b { (topic_title) }
                                 }
@@ -942,7 +945,7 @@ pub fn notifications_page(
                             Entry::Event { id, kind, title, reason, at, .. } => {
                                 // Through treff, which marks it read and then
                                 // leads on to the link it checked on arrival.
-                                a href={ "/notifications/e/" (id) } {
+                                a href={ (base) "/notifications/e/" (id) } {
                                     @match kind {
                                         crate::db::events::Kind::FilmAvailable => {
                                             "🎬 " b { (title) } " " (lang.t("film_available"))
@@ -961,7 +964,7 @@ pub fn notifications_page(
                                 }
                             }
                             Entry::Mention { topic_id, topic_title, post_id, author, at, .. } => {
-                                a href={ "/t/" (topic_id) "#p" (post_id) } {
+                                a href={ (base) "/t/" (topic_id) "#p" (post_id) } {
                                     span class="name" { (author) } " "
                                     (lang.t("mentioned_you_in")) " " b { (topic_title) }
                                 }
@@ -970,7 +973,7 @@ pub fn notifications_page(
                             Entry::Likes { topic_id, topic_title, post_id, count, latest_name, at, .. } => {
                                 // The latest name leads, the rest is a
                                 // number: "cem and 2 others like your post".
-                                a href={ "/t/" (topic_id) "#p" (post_id) } {
+                                a href={ (base) "/t/" (topic_id) "#p" (post_id) } {
                                     span class="name" { (latest_name) } " "
                                     @if *count == 1 { (lang.t("likes_your_post_in")) }
                                     @else { (lang.t("and")) " " (count - 1) " " (lang.t("others_like_your_post_in")) }

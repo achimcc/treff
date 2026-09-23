@@ -201,6 +201,26 @@ async fn the_bell_counts_what_the_forum_counts() {
         .oneshot(post_event(EVENTS, DUNE))
         .await
         .expect("event");
+    // And a comment on the blog: one bell everywhere (0.10.0).
+    let note = treff::db::topics::create_topic(
+        &db,
+        "blog.example.org",
+        "notes",
+        "Note",
+        "B",
+        &treff::authz::Identity {
+            subject: "konrad".into(),
+            name: "konrad".into(),
+            groups: vec!["Household".into()],
+            email: None,
+            handle: Some("konrad".into()),
+        },
+    )
+    .await
+    .expect("note");
+    treff::db::topics::add_reply(&db, note, "nice", &ada)
+        .await
+        .expect("comment");
 
     let answer = app
         .clone()
@@ -210,19 +230,27 @@ async fn the_bell_counts_what_the_forum_counts() {
     assert_eq!(answer.status(), StatusCode::OK);
     assert_eq!(answer.headers()["cache-control"], "no-store");
     let body = json(answer).await;
-    let forum = treff::db::inbox::unread_count(&db, "konrad", FORUM)
+    let both = [FORUM.to_string(), "blog.example.org".to_string()];
+    let all = treff::db::inbox::unread_count(&db, "konrad", &both)
         .await
         .expect("count");
-    assert_eq!(forum, 3, "a bundle, a mention, an event");
-    assert_eq!(body["unread"], forum, "{body}");
+    assert_eq!(all, 4, "a bundle, a mention, an event, a blog bundle");
+    assert_eq!(body["unread"], all, "{body}");
 
     let entries = body["entries"].as_array().expect("entries");
-    assert_eq!(entries.len(), 3, "{body}");
+    assert_eq!(entries.len(), 4, "{body}");
     let links: Vec<&str> = entries.iter().filter_map(|e| e["link"].as_str()).collect();
     assert!(
         links
             .iter()
-            .all(|l| l.starts_with("https://forum.example.org/")),
+            .all(|l| l.starts_with("https://forum.example.org/")
+                || l.starts_with("https://blog.example.org/")),
+        "every link carries its host: {links:?}"
+    );
+    assert!(
+        links
+            .iter()
+            .any(|l| l.starts_with("https://blog.example.org/t/")),
         "{links:?}"
     );
     let text = body.to_string();
@@ -248,7 +276,7 @@ async fn the_bell_counts_what_the_forum_counts() {
             .expect("r"),
     )
     .await;
-    assert!(page.contains("class=\"unread\">3<"), "{page}");
+    assert!(page.contains("class=\"unread\">4<"), "{page}");
 }
 
 /// Somebody who only asks for films and never came to the forum still has a
