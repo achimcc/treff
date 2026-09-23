@@ -847,6 +847,9 @@ fn server_error(what: &str, e: &anyhow::Error) -> Response {
 }
 
 const PAGE_SIZE: i64 = 50;
+/// How many topics the front page lists under "recent". The rest is one
+/// click further, in the section.
+const RECENT: i64 = 10;
 
 /// The point at which a request is refused before it is read into memory. Not
 /// the user-facing limit — that one is per space and configurable.
@@ -889,8 +892,25 @@ async fn space_index(
                 .iter()
                 .map(|c| (c, counts.get(&c.slug).cloned().unwrap_or_default()))
                 .collect();
+            let recent =
+                match crate::db::topics::list_recent(&app.db, &space.host, &who.subject, RECENT)
+                    .await
+                {
+                    Ok(list) => list
+                        .into_iter()
+                        .map(|l| crate::web::views::TopicRow {
+                            topic: l.topic,
+                            last: l.last,
+                            first: None,
+                            likes: None,
+                            counts: l.counts,
+                        })
+                        .collect::<Vec<_>>(),
+                    Err(e) => return server_error("cannot list recent topics", &e),
+                };
             let bell = bell(&app, &space, &who).await;
-            crate::web::views::category_index(&space, &who, lang, bell, &rows).into_response()
+            crate::web::views::category_index(&space, &who, lang, bell, &rows, &recent)
+                .into_response()
         }
     }
 }
@@ -919,18 +939,26 @@ async fn render_space(
         return forbidden();
     }
 
-    let topics =
-        match crate::db::topics::list_topics(&app.db, &space.host, slug, PAGE_SIZE, 0).await {
-            Ok(t) => t,
-            Err(e) => return server_error("cannot list topics", &e),
-        };
+    let topics = match crate::db::topics::listed(
+        &app.db,
+        &space.host,
+        Some(slug),
+        &who.subject,
+        PAGE_SIZE,
+        0,
+    )
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => return server_error("cannot list topics", &e),
+    };
 
     // A timeline shows the bodies, so it needs the opening post of each topic.
     // A topic list does not, and does not ask for them.
     let mut rows = Vec::with_capacity(topics.len());
-    for (topic, last) in topics {
+    for listed in topics {
         let first = if space.view == crate::config::View::Timeline {
-            match crate::db::topics::load_topic(&app.db, &space.host, topic.id).await {
+            match crate::db::topics::load_topic(&app.db, &space.host, listed.topic.id).await {
                 Ok(Some((_, posts))) => posts.into_iter().next(),
                 Ok(None) => None,
                 Err(e) => return server_error("cannot load a topic", &e),
@@ -939,10 +967,11 @@ async fn render_space(
             None
         };
         rows.push(crate::web::views::TopicRow {
-            topic,
-            last,
+            topic: listed.topic,
+            last: listed.last,
             first,
             likes: None,
+            counts: listed.counts,
         });
     }
     // The hearts of the entries shown, in one query for the page.

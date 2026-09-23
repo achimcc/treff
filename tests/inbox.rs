@@ -250,7 +250,7 @@ async fn a_read_bundle_does_not_call_itself_new() {
     // Only the list itself: the bell in the header carries all its words as
     // attributes for bell.js, "neue Antwort" among them.
     let list = page_html
-        .split("<main>")
+        .split("<main")
         .nth(1)
         .expect("a main element")
         .to_string();

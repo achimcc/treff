@@ -406,6 +406,27 @@ fn topic_from(row: &sqlx::sqlite::SqliteRow) -> Topic {
     }
 }
 
+/// What a list says about a topic beyond who wrote last: how long it is,
+/// how the opening post was received, and whether something in it waits for
+/// the viewer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub replies: i64,
+    /// The likes of the opening post — the number a reader sees when they
+    /// open it.
+    pub likes: i64,
+    /// An unread entry of the viewer's in this topic.
+    pub unread: bool,
+}
+
+/// One line of a list.
+#[derive(Debug, Clone)]
+pub struct Listed {
+    pub topic: Topic,
+    pub last: Option<LastPost>,
+    pub counts: Counts,
+}
+
 pub async fn list_topics(
     db: &Db,
     space: &str,
@@ -413,6 +434,33 @@ pub async fn list_topics(
     limit: i64,
     offset: i64,
 ) -> anyhow::Result<Vec<(Topic, Option<LastPost>)>> {
+    Ok(listed(db, space, Some(category), "", limit, offset)
+        .await?
+        .into_iter()
+        .map(|l| (l.topic, l.last))
+        .collect())
+}
+
+/// The topics that moved last across the whole space — the front page's
+/// answer to "where is something going on?".
+pub async fn list_recent(
+    db: &Db,
+    space: &str,
+    viewer: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<Listed>> {
+    listed(db, space, None, viewer, limit, 0).await
+}
+
+/// A category's topics, with their counts, for `viewer`.
+pub async fn listed(
+    db: &Db,
+    space: &str,
+    category: Option<&str>,
+    viewer: &str,
+    limit: i64,
+    offset: i64,
+) -> anyhow::Result<Vec<Listed>> {
     let (limit, offset) = clamp_page(limit, offset);
     let rows = sqlx::query(
         // `hidden = 0` keeps withdrawn articles out of the list without
@@ -422,17 +470,26 @@ pub async fn list_topics(
         // something going on? The highest `id` and not the latest
         // `created_at`, because the order posts were written in is the order
         // they are read in; a backdated article must not jump the queue.
+        //
+        // `?2 IS NULL OR t.category = ?2`: one statement for a category and
+        // for the whole space, so the two lists cannot drift apart.
         "SELECT t.*,
                 p.author_name AS last_author_name,
                 p.created_at  AS last_created_at,
-                p.id = (SELECT min(id) FROM posts WHERE topic_id = t.id) AS last_opens
+                p.id = (SELECT min(id) FROM posts WHERE topic_id = t.id) AS last_opens,
+                (SELECT count(*) - 1 FROM posts WHERE topic_id = t.id) AS replies,
+                (SELECT count(*) FROM likes
+                  WHERE post_id = (SELECT min(id) FROM posts WHERE topic_id = t.id)) AS likes,
+                EXISTS (SELECT 1 FROM inbox
+                         WHERE subject = ?3 AND topic_id = t.id AND read_at IS NULL) AS unread
            FROM topics t
            LEFT JOIN posts p ON p.id = (SELECT max(id) FROM posts WHERE topic_id = t.id)
-          WHERE t.space = ? AND t.category = ? AND t.hidden = 0
-          ORDER BY t.updated_at DESC, t.id DESC LIMIT ? OFFSET ?",
+          WHERE t.space = ?1 AND (?2 IS NULL OR t.category = ?2) AND t.hidden = 0
+          ORDER BY t.updated_at DESC, t.id DESC LIMIT ?4 OFFSET ?5",
     )
     .bind(space)
     .bind(category)
+    .bind(viewer)
     .bind(limit)
     .bind(offset)
     .fetch_all(db.pool())
@@ -454,7 +511,17 @@ pub async fn list_topics(
                     // nothing.
                     opens_the_topic: row.get::<i64, _>("last_opens") != 0,
                 });
-            (topic_from(row), last)
+            Listed {
+                topic: topic_from(row),
+                last,
+                counts: Counts {
+                    // A topic whose posts are all gone would count -1
+                    // replies; it has none.
+                    replies: row.get::<i64, _>("replies").max(0),
+                    likes: row.get("likes"),
+                    unread: row.get::<i64, _>("unread") != 0,
+                },
+            }
         })
         .collect())
 }

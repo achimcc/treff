@@ -151,7 +151,9 @@ pub fn layout_with_search(
                         }
                     }
                 }
-                main { (body) }
+                // `id="top"`: where the `top` link at the foot of a long
+                // thread leads.
+                main id="top" { (body) }
                 footer {
                     p class="prompt" { "# " (space.host) }
                     p { (lang.t("footer_note")) }
@@ -213,6 +215,7 @@ pub fn category_index(
     lang: Lang,
     bell: Bell,
     rows: &[(&Category, CategoryCount)],
+    recent: &[TopicRow],
 ) -> Markup {
     let body = html! {
         h2 class="section-head" { (lang.t("sections")) }
@@ -238,6 +241,13 @@ pub fn category_index(
                     }
                 }
             }
+        }
+        // WHERE SOMETHING IS GOING ON. A front page that lists sections and
+        // nothing else sends the reader into every one of them to find out
+        // that nothing happened.
+        @if !recent.is_empty() {
+            h2 class="section-head recent-head" { (lang.t("recent")) }
+            (threads_table(space, lang, recent, true))
         }
     };
     layout(space, who, lang, bell, &space.title, body)
@@ -363,6 +373,114 @@ pub struct TopicRow {
     pub first: Option<Post>,
     /// The likes of the opening post, for the heart under a timeline entry.
     pub likes: Option<crate::db::likes::Summary>,
+    /// Replies, likes, and whether something here waits for the viewer.
+    pub counts: crate::db::topics::Counts,
+}
+
+/// The name of a section for a label — its configured title, or the slug
+/// when the configuration no longer knows it: a topic whose section went is
+/// still listed, and "archive" says more than nothing.
+fn section_label<'a>(space: &'a Space, slug: &'a str) -> &'a str {
+    space.category(slug).map_or(slug, |c| c.title.as_str())
+}
+
+/// The section line of a `topics` space: the way up, and every section
+/// with the current one marked. `aria-current` is the mark a screen reader
+/// hears; the stylesheet draws the `>` from it.
+fn section_nav(space: &Space, lang: Lang, current: Option<&str>) -> Markup {
+    html! {
+        nav class="sections" aria-label=(lang.t("sections")) {
+            a class="up" href="/" { (lang.t("sections")) }
+            @for category in &space.categories {
+                a href={ "/c/" (category.slug) }
+                  aria-current=[(current == Some(category.slug.as_str())).then_some("page")] {
+                    (category.title)
+                }
+            }
+        }
+    }
+}
+
+/// A number in a table: `0` as a dash, so the eye finds the rows where
+/// something happened instead of reading zeros.
+fn tally(n: i64) -> String {
+    if n == 0 {
+        "–".to_string()
+    } else {
+        n.to_string()
+    }
+}
+
+/// The topic list, as a TABLE — see `space_page` for why. Shared by the
+/// section page and the front page's recent list; the latter names the
+/// section under each subject, because its rows come from all of them.
+fn threads_table(space: &Space, lang: Lang, rows: &[TopicRow], with_section: bool) -> Markup {
+    html! {
+        table class=(if with_section { "threads recent" } else { "threads" }) {
+            thead {
+                tr {
+                    th scope="col" { (lang.t("col_topic")) }
+                    th scope="col" class="n" { (lang.t("col_replies")) }
+                    th scope="col" class="n" { (lang.t("col_likes")) }
+                    th scope="col" { (lang.t("col_last_reply")) }
+                }
+            }
+            tbody {
+                @for TopicRow { topic, last, counts, .. } in rows {
+                    // `opens_the_topic` and not "is there a post": every
+                    // topic has one. What this column promises is a REPLY,
+                    // and the opening post is not one — printing it here
+                    // would credit the opener with an answer they never
+                    // wrote and make every silent thread look like a
+                    // conversation.
+                    @let answer = last.as_ref().filter(|last| !last.opens_the_topic);
+                    // `unread` on the row, not on a cell: the mark stands in
+                    // front of the subject and the whole row is what it is
+                    // about.
+                    tr class=[counts.unread.then_some("unread")] {
+                        td class="subject" {
+                            a href={ "/t/" (topic.id) } { (topic.title) }
+                            p class="byline" {
+                                @if with_section {
+                                    span class="section" { (section_label(space, &topic.category)) }
+                                    span class="sep" { " · " }
+                                }
+                                span class="name" { (topic.author_name) }
+                                span class="sep" { " · " }
+                                (opened(topic))
+                            }
+                        }
+                        // The numbers carry their heading on a phone, where
+                        // the heading row is hidden — from the catalogue,
+                        // like the last-reply cell.
+                        // `zero` so a phone, which prints the label after
+                        // the number, can leave "– replies" out entirely.
+                        td class={ "n replies" (if counts.replies == 0 { " zero" } else { "" }) }
+                           data-label=(lang.t("col_replies")) { (tally(counts.replies)) }
+                        td class={ "n likes" (if counts.likes == 0 { " zero" } else { "" }) }
+                           data-label=(lang.t("col_likes")) { (tally(counts.likes)) }
+                        // The heading is repeated on the cell because a
+                        // phone cannot show the columns side by side:
+                        // stacked, the stylesheet hides the heading row and
+                        // prints this instead.
+                        //
+                        // And only where there IS an answer: "last reply: no
+                        // replies yet" says the same thing twice.
+                        td class="latest"
+                           data-label=[answer.map(|_| lang.t("col_last_reply"))] {
+                            @match answer {
+                                Some(last) => {
+                                    span class="name" { (last.author_name) }
+                                    span class="when" { (moment(last.created_at)) }
+                                },
+                                None => span class="none" { (lang.t("no_replies_yet")) },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The pencil that opens the edit box, drawn here rather than loaded.
@@ -501,7 +619,7 @@ pub fn space_page(
         }
         @match space.view {
             View::Timeline => {
-                @for TopicRow { topic, first, likes, .. } in topics {
+                @for TopicRow { topic, first, likes, counts, .. } in topics {
                     article class="entry" {
                         h2 { a href={ "/t/" (topic.id) } { (topic.title) } }
                         // Das Datum steht hier, weil es die ORDNUNG dieser
@@ -517,77 +635,34 @@ pub fn space_page(
                         }
                         @if let Some(post) = first {
                             div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
+                            // The heart, and how many people wrote
+                            // underneath — the way to them, on an entry
+                            // that shows the text but not the comments.
                             div class="foot" {
                                 (like_control(lang, post.id, post.author_subject == who.subject, likes.as_ref()))
+                                a class="comments" href={ "/t/" (topic.id) } {
+                                    @if counts.replies == 1 { (lang.t("comment_count_one")) }
+                                    @else { (counts.replies) " " (lang.t("comment_count_many")) }
+                                }
                             }
                         }
                     }
                 }
             }
             View::Topics => {
+                // The section line first: on a page that lists one section,
+                // the way to the others and up is the first thing a reader
+                // who came from a bookmark or a mail needs.
+                (section_nav(space, lang, category.map(|c| c.slug.as_str())))
                 // A TABLE, and not a list with a heading pinned over it.
                 //
-                // Two events per row — the thread was opened, the thread was
-                // last answered — each with a name and a moment, under a
-                // heading that says which is which. That is a table by every
-                // definition the word has, and writing it as a `<ul>` would
-                // mean holding two columns in line by hand and telling a
-                // screen reader nothing about what the second one means.
-                //
-                // Until 2026-09-11 this line showed one of the two and hid
-                // the other: first the opener next to the date of somebody
-                // else's reply, then — correctly but half-blind — only
-                // whoever wrote last. Both halves are asked after.
-                table class="threads" {
-                    thead {
-                        tr {
-                            th scope="col" { (lang.t("col_topic")) }
-                            th scope="col" { (lang.t("col_last_reply")) }
-                        }
-                    }
-                    tbody {
-                        @for TopicRow { topic, last, .. } in topics {
-                            // `opens_the_topic` and not "is there a post":
-                            // every topic has one. What this column promises
-                            // is a REPLY, and the opening post is not one —
-                            // printing it here would credit the opener with an
-                            // answer they never wrote and make every silent
-                            // thread look like a conversation.
-                            @let answer = last.as_ref().filter(|last| !last.opens_the_topic);
-                            tr {
-                                td class="subject" {
-                                    a href={ "/t/" (topic.id) } { (topic.title) }
-                                    p class="byline" {
-                                        span class="name" { (topic.author_name) }
-                                        span class="sep" { " · " }
-                                        (opened(topic))
-                                    }
-                                }
-                                // The heading is repeated on the cell because
-                                // a phone cannot show the two columns side by
-                                // side: stacked, the stylesheet hides the
-                                // heading row and prints this instead. It
-                                // comes from the catalogue, not from the CSS,
-                                // because the interface has two languages and
-                                // a stylesheet has none.
-                                //
-                                // And only where there IS an answer: "last
-                                // reply: no replies yet" says the same thing
-                                // twice and reads like a stutter.
-                                td class="latest"
-                                   data-label=[answer.map(|_| lang.t("col_last_reply"))] {
-                                    @match answer {
-                                        Some(last) => {
-                                            span class="name" { (last.author_name) }
-                                            span class="when" { (moment(last.created_at)) }
-                                        },
-                                        None => span class="none" { (lang.t("no_replies_yet")) },
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                // Every row answers what happened here — opened by whom,
+                // how many replies and likes, answered last by whom — each
+                // under a heading that says which is which. That is a table
+                // by every definition the word has, and writing it as a
+                // `<ul>` would mean holding the columns in line by hand and
+                // telling a screen reader nothing about what they mean.
+                (threads_table(space, lang, topics, false))
             }
         }
         @if let Some(category) = category {
@@ -655,20 +730,39 @@ pub fn topic_page(
         // a design, and the front page is a level too far up. Labelled with
         // the place it leads to rather than with an arrow, like the `up` link
         // in the header — the `../` in front of it comes from the stylesheet.
-        @if let Some(category) = category {
-            nav class="crumb" { a href={ "/c/" (category.slug) } { (category.title) } }
-        }
         h1 { (topic.title) }
-        // A form and not a link: following changes something, and a GET that
-        // changes state is one a link preview or a mail client can trigger
-        // without anybody clicking.
-        form class="follow" method="post"
-             action={ "/t/" (topic.id) (if following { "/unfollow" } else { "/follow" }) } {
-            button type="submit" {
-                (lang.t(if following { "unfollow" } else { "follow" }))
+        // THE META LINE: where this is, how long it is, and whether you
+        // are following it — one quiet line under the title.
+        //
+        // The section link is THE WAY BACK. A topic is reached from a mail,
+        // from a search or from a bookmark as often as from the list it
+        // belongs to, and without it those arrivals are a dead end: the
+        // browser's back button is not a design. Labelled with the place it
+        // leads to, like the `up` link in the header — the `../` in front
+        // of it comes from the stylesheet.
+        //
+        // Following is a FORM and not a link: it changes something, and a
+        // GET that changes state is one a link preview or a mail client can
+        // trigger without anybody clicking.
+        @let replies = posts.len().saturating_sub(1);
+        p class="meta" {
+            @if let Some(category) = category {
+                a class="up" href={ "/c/" (category.slug) } { (category.title) }
+                span class="sep" { " · " }
             }
-            @if following {
-                span class="note" { (lang.t("following_note")) }
+            span class="replies" {
+                @match replies {
+                    0 => (lang.t("no_replies_yet")),
+                    1 => (lang.t("reply_count_one")),
+                    n => { (n) " " (lang.t("reply_count_many")) }
+                }
+            }
+            span class="sep" { " · " }
+            form class="follow" method="post"
+                 action={ "/t/" (topic.id) (if following { "/unfollow" } else { "/follow" }) } {
+                button type="submit" title=[following.then_some(lang.t("following_note"))] {
+                    (lang.t(if following { "unfollow" } else { "follow" }))
+                }
             }
         }
         @for (i, post) in posts.iter().enumerate() {
@@ -687,6 +781,9 @@ pub fn topic_page(
                     @if i == 0 && topic.dated_by_day { (crate::clock::day(post.created_at, crate::clock::zone())) }
                     @else { (moment(post.created_at)) }
                     @if post.edited { " (" (lang.t("edited")) ")" }
+                    // The post's number, and a link to its own anchor, so
+                    // a post can be pointed at: "see #3".
+                    a class="num" href={ "#p" (post.id) } { "#" (i + 1) }
                 }
                 div class="body" { (PreEscaped(crate::markup::render_with(&post.body_markdown, highlighted))) }
                 // The foot of a post: the heart on the left, and on your own
@@ -725,6 +822,11 @@ pub fn topic_page(
                 }
                 }
             }
+        }
+        // The way back up, at the foot of the thread — a long one is read
+        // to the end, and the reply box waits there.
+        @if posts.len() > 1 {
+            a class="top" href="#top" { (lang.t("top")) }
         }
         @if may_reply {
             // ONE FOLD FOR BOTH FORMS. Writing a few lines and adding a
