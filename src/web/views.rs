@@ -21,6 +21,7 @@ pub const STYLESHEET: &str = include_str!("style.css");
 /// either (ADR 0005).
 pub const MENTION_SCRIPT: &str = include_str!("mention.js");
 pub const BELL_SCRIPT: &str = include_str!("bell.js");
+pub const LIKE_SCRIPT: &str = include_str!("like.js");
 
 /// What the header needs to know about the person looking, beyond who they
 /// are: how many things wait for them. Counted by the handler AFTER it has
@@ -67,6 +68,9 @@ pub fn layout_with_search(
                 script src="/assets/mention.js" defer {}
                 // The bell's overlay and its live number (ADR 0005, amended).
                 script src="/assets/bell.js" defer {}
+                // The heart without a reload (ADR 0008); without it the like
+                // is a form and the page comes back at the post.
+                script src="/assets/like.js" defer {}
             }
             body {
                 header {
@@ -354,6 +358,8 @@ pub struct TopicRow {
     pub topic: Topic,
     pub last: Option<LastPost>,
     pub first: Option<Post>,
+    /// The likes of the opening post, for the heart under a timeline entry.
+    pub likes: Option<crate::db::likes::Summary>,
 }
 
 /// The pencil that opens the edit box, drawn here rather than loaded.
@@ -381,6 +387,58 @@ fn icon_bin() -> Markup {
             path d="M2.5 4h11M6 4V2.5h4V4M3.8 4l.7 9.5h7l.7-9.5M6.5 6.5v5M9.5 6.5v5"
                  fill="none" stroke="currentColor" stroke-width="1.3"
                  stroke-linecap="round" stroke-linejoin="round" {}
+        }
+    }
+}
+
+/// The heart. Pressed, the stylesheet fills it in the signal colour; at rest
+/// it is an outline in the second voice, like the pencil and the basket.
+fn icon_heart() -> Markup {
+    html! {
+        svg class="icon heart" viewBox="0 0 16 16" width="14" height="14"
+            aria-hidden="true" focusable="false" {
+            path d="M8 13.6 2.9 8.6a3 3 0 0 1 4.2-4.3L8 5.2l.9-.9a3 3 0 0 1 4.2 4.3z"
+                 fill="none" stroke="currentColor" stroke-width="1.3"
+                 stroke-linejoin="round" {}
+        }
+    }
+}
+
+/// The like control under a post (ADR 0008): a form with the heart and the
+/// number for everybody else's post; on your own, the heart and the number
+/// without a button, and nothing at all while the number is zero.
+///
+/// The names go in the `title`, newest first, so the number can be asked
+/// "who?" without another page. `aria-pressed` is the state a screen reader
+/// hears; `like.js` keeps both in step without a reload.
+fn like_control(
+    lang: Lang,
+    post_id: i64,
+    own: bool,
+    summary: Option<&crate::db::likes::Summary>,
+) -> Markup {
+    let count = summary.map_or(0, |s| s.count);
+    let liked = summary.is_some_and(|s| s.liked);
+    let names = summary.map(|s| s.names.join(", ")).unwrap_or_default();
+    let who = (!names.is_empty()).then_some(names.as_str());
+    html! {
+        @if own {
+            @if count > 0 {
+                span class="like own" title=[who] {
+                    (icon_heart())
+                    span class="count" { (count) }
+                }
+            }
+        } @else {
+            form class="like" method="post" action={ "/p/" (post_id) "/like" } {
+                button type="submit" aria-pressed=(if liked { "true" } else { "false" })
+                       title=[who]
+                       aria-label=(lang.t(if liked { "unlike" } else { "like" }))
+                       data-t-like=(lang.t("like")) data-t-unlike=(lang.t("unlike")) {
+                    (icon_heart())
+                    @if count > 0 { span class="count" { (count) } }
+                }
+            }
         }
     }
 }
@@ -440,7 +498,7 @@ pub fn space_page(
         }
         @match space.view {
             View::Timeline => {
-                @for TopicRow { topic, first, .. } in topics {
+                @for TopicRow { topic, first, likes, .. } in topics {
                     article class="entry" {
                         h2 { a href={ "/t/" (topic.id) } { (topic.title) } }
                         // Das Datum steht hier, weil es die ORDNUNG dieser
@@ -456,6 +514,9 @@ pub fn space_page(
                         }
                         @if let Some(post) = first {
                             div class="body" { (PreEscaped(crate::markup::render(&post.body_markdown))) }
+                            div class="foot" {
+                                (like_control(lang, post.id, post.author_subject == who.subject, likes.as_ref()))
+                            }
                         }
                     }
                 }
@@ -563,6 +624,8 @@ pub struct TopicView<'a> {
     /// Author subject → handle, shown next to the name so it can be copied:
     /// completing `@` needs `mention.js`, and a page must work without it.
     pub handles: &'a std::collections::HashMap<String, String>,
+    /// Post id → who likes it, for the heart under each post.
+    pub likes: &'a std::collections::HashMap<i64, crate::db::likes::Summary>,
 }
 
 pub fn topic_page(
@@ -579,6 +642,7 @@ pub fn topic_page(
         following,
         highlighted,
         handles,
+        likes,
     } = view;
     let may_reply = category.is_some_and(|c| crate::authz::may_reply(who, c));
     let body = html! {
@@ -622,6 +686,12 @@ pub fn topic_page(
                     @if post.edited { " (" (lang.t("edited")) ")" }
                 }
                 div class="body" { (PreEscaped(crate::markup::render_with(&post.body_markdown, highlighted))) }
+                // The foot of a post: the heart on the left, and on your own
+                // the pencil and the basket on the right. One row, so a post
+                // ends in a line barely taller than its own text.
+                @let own = post.author_subject == who.subject;
+                div class="foot" {
+                    (like_control(lang, post.id, own, likes.get(&post.id)))
                 // Only on your own — and the display is not the defence: the
                 // query refuses the same thing again, on its own.
                 @if crate::authz::may_modify(who, &post.author_subject) {
@@ -649,6 +719,7 @@ pub fn topic_page(
                             (icon_bin())
                         }
                     }
+                }
                 }
             }
         }

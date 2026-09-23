@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!-- Drives the REAL src/web/like.js in a browser; see run.sh. Inline script
+     is fine here: this file is a test fixture, never served by treff. -->
+<html lang="de"><head><meta charset="utf-8"><title>like.js</title>
+<script>
+  // A stand-in for the server: the first heart answers, the second is
+  // down. The test asks what the script did in each case.
+  var calls = [];
+  window.fetch = function (url, init) {
+    calls.push({ url: url, method: init && init.method, accept: init && init.headers && init.headers.Accept });
+    if (calls.length === 1) {
+      return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ liked: true, count: 3 }); } });
+    }
+    return Promise.resolve({ ok: false, json: function () { return Promise.resolve({}); } });
+  };
+</script>
+<script src="/src/web/like.js"></script>
+</head><body>
+<main>
+<form class="like" id="first" method="post" action="/p/7/like">
+  <button type="submit" aria-pressed="false" aria-label="Gefaellt mir"
+          data-t-like="Gefaellt mir" data-t-unlike="Gefaellt mir nicht mehr">H</button>
+</form>
+<form class="like" id="second" method="post" action="/p/8/like">
+  <button type="submit" aria-pressed="false" aria-label="Gefaellt mir"
+          data-t-like="Gefaellt mir" data-t-unlike="Gefaellt mir nicht mehr">H<span class="count">1</span></button>
+</form>
+</main>
+<pre id="out"></pre>
+<script>
+  var r = {};
+  var submitted = [];
+  function submitOf(form) { return form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); }
+  function tick() { return new Promise(function (res) { setTimeout(res, 20); }); }
+  (async function () {
+    await tick();
+    var first = document.getElementById("first");
+    var second = document.getElementById("second");
+    // A submit the browser would otherwise carry out: the script must stop it.
+    second.submit = function () { submitted.push(second.id); };
+    r.browser_submit_prevented = !submitOf(first);
+    await tick();
+    r.asked = calls[0];
+    var b1 = first.querySelector("button");
+    r.pressed_after = b1.getAttribute("aria-pressed");
+    r.label_after = b1.getAttribute("aria-label");
+    r.count_after = b1.querySelector(".count") && b1.querySelector(".count").textContent;
+    r.enabled_again = !b1.disabled;
+    submitOf(second);
+    await tick();
+    r.falls_back_to_the_form = submitted;
+    r.second_unchanged = second.querySelector("button").getAttribute("aria-pressed") + "/" + second.querySelector(".count").textContent;
+    document.getElementById("out").textContent = JSON.stringify(r);
+  })();
+</script>
+</body></html>

@@ -419,7 +419,7 @@ async fn a_page_loads_the_script_and_no_inline_code() {
         html.contains(r#"<script src="/assets/bell.js" defer></script>"#),
         "{html}"
     );
-    assert_eq!(html.matches("<script").count(), 2, "{html}");
+    assert_eq!(html.matches("<script").count(), 3, "{html}");
     let lower = html.to_lowercase();
     for attribute in [
         " onclick=",

@@ -557,6 +557,67 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 .follow button:hover { color: var(--on); border-color: hsl(150 50% 32%); }
 .follow .note { font-family: var(--mono); font-size: 12px; color: var(--murmur); }
 
+/* --- The foot of a post: the heart, and your own controls -------------- */
+
+/* One row under the text: the heart on the left, the pencil and the basket
+   on the right of your own posts. A post ends in a line barely taller than
+   its own text, whoever wrote it. */
+.foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem 1rem;
+    margin-top: 1.1rem;
+    padding-top: .8rem;
+    border-top: 1px dashed var(--edge);
+}
+
+/* THE HEART (ADR 0008). At rest an outline in the murmur, like every other
+   control; pressed, it fills in the signal colour — the one place under a
+   post that is allowed to be bright, because it says something about this
+   post and nothing about the page. The number sits in the mono of the
+   datelines, never louder than the text above it. */
+.like {
+    display: inline-flex;
+    align-items: center;
+    font: 12px/1 var(--mono);
+    color: var(--murmur);
+}
+
+.like button {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    height: 28px;
+    padding: 0 .55rem;
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    transition: color .16s ease, border-color .16s ease;
+}
+
+.like button:hover { color: var(--on); border-color: hsl(150 50% 32%); }
+.like button:disabled { opacity: .6; cursor: default; }
+
+.like button:focus-visible {
+    outline: none;
+    border-color: hsl(150 60% 40%);
+    box-shadow: 0 0 0 1px hsl(150 70% 45% / .45);
+}
+
+.like button[aria-pressed="true"] { color: var(--on); border-color: hsl(150 50% 32%); }
+.like button[aria-pressed="true"] .heart { fill: currentColor; }
+.like button[aria-pressed="true"] .heart path { fill: currentColor; }
+
+/* Your own post: the same heart and number, and no button around them —
+   there is nothing you could do here. */
+.like.own { gap: .35rem; height: 28px; padding: 0 .1rem; color: var(--quiet); }
+.like.own .heart path { fill: currentColor; }
+
 /* --- Your own posts ---------------------------------------------------- */
 
 .own {
@@ -564,9 +625,7 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
     flex-wrap: wrap;
     align-items: flex-start;
     gap: .6rem;
-    margin-top: 1.1rem;
-    padding-top: 1rem;
-    border-top: 1px dashed var(--edge);
+    margin-left: auto;
 }
 
 /* Open, the edit box takes the whole width and the second control moves

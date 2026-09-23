@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Drives src/web/mention.js and src/web/bell.js in headless Chrome and
+# Drives src/web/mention.js, bell.js and like.js in headless Chrome and
 # prints what they did, as JSON. `cargo test` cannot run a script; this is the measurement instead
 # (plan-stage-4.md, task 3). Needs google-chrome or chromium on PATH.
 set -euo pipefail
@@ -13,9 +13,9 @@ for _ in $(seq 20); do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; 
 chrome=$(command -v google-chrome || command -v chromium)
 # Compared against expected.txt, one line per page: mention.js normally,
 # mention.js when /mentionable fails (nothing may open, nothing is changed),
-# and bell.js.
+# bell.js, and like.js (one heart answered, one server down).
 # A change to what the script does changes that file, in the same commit.
-actual=$(for page in "mention.html" "mention.html?fail" "bell.html"; do
+actual=$(for page in "mention.html" "mention.html?fail" "bell.html" "like.html"; do
   "$chrome" --headless=new --disable-gpu --user-data-dir="$profile" \
     --virtual-time-budget=5000 --dump-dom \
     "http://127.0.0.1:$port/tests/js/$page" 2>/dev/null \
@@ -26,7 +26,7 @@ done)
 if [ "${PRINT:-}" = 1 ]; then
   echo "$actual"
 elif [ "$actual" = "$(cat "$root/tests/js/expected.txt")" ]; then
-  echo "scripts: as expected (3 runs)"
+  echo "scripts: as expected (4 runs)"
 else
   echo "scripts: NOT as expected" >&2
   diff <(echo "$actual") "$root/tests/js/expected.txt" >&2 || true

@@ -938,7 +938,26 @@ async fn render_space(
         } else {
             None
         };
-        rows.push(crate::web::views::TopicRow { topic, last, first });
+        rows.push(crate::web::views::TopicRow {
+            topic,
+            last,
+            first,
+            likes: None,
+        });
+    }
+    // The hearts of the entries shown, in one query for the page.
+    let shown: Vec<i64> = rows
+        .iter()
+        .filter_map(|r| r.first.as_ref().map(|p| p.id))
+        .collect();
+    let mut likes = match crate::db::likes::summaries(&app.db, &shown, &who.subject).await {
+        Ok(l) => l,
+        Err(e) => return server_error("cannot look up likes", &e),
+    };
+    for row in &mut rows {
+        if let Some(post) = &row.first {
+            row.likes = likes.remove(&post.id);
+        }
     }
 
     let bell = bell(app, space, who).await;
@@ -992,6 +1011,11 @@ async fn topic_page(
                 Ok(h) => h,
                 Err(e) => return server_error("cannot look up handles", &e),
             };
+            let ids: Vec<i64> = posts.iter().map(|p| p.id).collect();
+            let likes = match crate::db::likes::summaries(&app.db, &ids, &who.subject).await {
+                Ok(l) => l,
+                Err(e) => return server_error("cannot look up likes", &e),
+            };
             let category = space.category(&topic.category);
             let view = crate::web::views::TopicView {
                 category,
@@ -1000,6 +1024,7 @@ async fn topic_page(
                 following,
                 highlighted: &highlighted,
                 handles: &handles,
+                likes: &likes,
             };
             crate::web::views::topic_page(&space, &who, lang, bell, view).into_response()
         }
@@ -1136,6 +1161,49 @@ async fn reply(
     match crate::db::topics::add_reply_mentioning(&app.db, id, &body, &who, &told).await {
         Ok(_) => Redirect::to(&format!("/t/{id}")).into_response(),
         Err(e) => server_error("cannot add a reply", &e),
+    }
+}
+
+/// The heart (ADR 0008): one click on, the next off. Reading the space is
+/// the right that is needed — a like is a reaction to reading, and somebody
+/// who may read but not reply may still say so. Your own post is refused,
+/// the other space's post is not there.
+///
+/// With `Accept: application/json` (`like.js`) the answer is the number and
+/// the state; otherwise the page comes back at the post, the ordinary way.
+async fn like_post(
+    State(app): State<AppState>,
+    CurrentSpace(space): CurrentSpace,
+    CurrentUser(who): CurrentUser,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    if !crate::authz::may_read(&who, &space) {
+        return forbidden();
+    }
+    match crate::db::likes::toggle(&app.db, &space.host, id, &who).await {
+        Ok(crate::db::likes::Outcome::NotFound) => not_found(),
+        Ok(crate::db::likes::Outcome::OwnPost) => forbidden(),
+        Ok(crate::db::likes::Outcome::Toggled {
+            liked,
+            count,
+            topic_id,
+        }) => {
+            let wants_json = headers
+                .get(header::ACCEPT)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.contains("application/json"));
+            if wants_json {
+                (
+                    [(header::CACHE_CONTROL, "no-store")],
+                    axum::Json(serde_json::json!({ "liked": liked, "count": count })),
+                )
+                    .into_response()
+            } else {
+                Redirect::to(&format!("/t/{topic_id}#p{id}")).into_response()
+            }
+        }
+        Err(e) => server_error("cannot toggle a like", &e),
     }
 }
 
@@ -1439,6 +1507,18 @@ async fn bell_script(headers: axum::http::HeaderMap) -> Response {
     script(&headers, BELL_ETAG.as_str(), crate::web::views::BELL_SCRIPT)
 }
 
+/// The validator of `like.js`, like every asset's.
+static LIKE_ETAG: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    crate::web::views::LIKE_SCRIPT.hash(&mut hasher);
+    format!("\"{:016x}\"", hasher.finish())
+});
+
+async fn like_script(headers: axum::http::HeaderMap) -> Response {
+    script(&headers, LIKE_ETAG.as_str(), crate::web::views::LIKE_SCRIPT)
+}
+
 /// One script from its own route: `no-cache` and a validator, so a new
 /// version is not hidden by a cache.
 fn script(headers: &axum::http::HeaderMap, etag: &'static str, body: &'static str) -> Response {
@@ -1506,6 +1586,7 @@ pub fn router(state: AppState) -> Router {
         .route("/t/{id}/follow", axum::routing::post(follow))
         .route("/t/{id}/unfollow", axum::routing::post(unfollow))
         .route("/p/{id}/edit", axum::routing::post(edit_post))
+        .route("/p/{id}/like", axum::routing::post(like_post))
         // One address, two methods: the GET asks, the POST acts.
         .route("/p/{id}/delete", get(delete_question).post(delete_post))
         // Two limits, and both are needed. This one protects memory and is
@@ -1520,6 +1601,7 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/style.css", get(stylesheet))
         .route("/assets/mention.js", get(mention_script))
         .route("/assets/bell.js", get(bell_script))
+        .route("/assets/like.js", get(like_script))
         .route("/auth/login", get(login))
         .route("/u/{id}/{token}", get(unsubscribe_page))
         .route("/u/{id}/{token}", axum::routing::post(unsubscribe_now))
