@@ -420,22 +420,36 @@ async fn a_like_on_an_article_rings_the_owners_bell() {
     assert_eq!(stray, 0, "nothing is written for the name on the file");
 }
 
-/// The article is the owner's in every sense but the name on it.
+/// The owner may like an article — the name on it is not theirs, and the
+/// count is everybody's. What they do not get is a bell for their own click.
 #[tokio::test]
-async fn the_owner_cannot_like_their_own_article() {
+async fn the_owner_may_like_an_article_and_hears_nothing() {
     let (dir, db, app, _, p) = blog_owned_by("achim").await;
     let achim = signed_in(&db, dir.path(), "achim", &["Household"]).await;
-    let response = app
-        .clone()
-        .oneshot(post(BLOG, &format!("/p/{p}/like"), &achim))
-        .await
-        .expect("response");
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let html = page(&app, BLOG, "/", &achim).await;
     assert!(
-        like_form(&html, p).is_none(),
-        "no button on your own article: {html}"
+        like_form(&html, p).is_some(),
+        "a heart for the owner too: {html}"
     );
+    let response = app
+        .clone()
+        .oneshot(post_json(BLOG, &format!("/p/{p}/like"), &achim))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let json: serde_json::Value = serde_json::from_str(&body_of(response).await).expect("json");
+    assert_eq!(json["liked"], true);
+    assert_eq!(json["count"], 1);
+    assert_eq!(
+        badge(&page(&app, BLOG, "/", &achim).await),
+        None,
+        "no bell for your own click"
+    );
+    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM inbox")
+        .fetch_one(db.pool())
+        .await
+        .expect("count");
+    assert_eq!(entries, 0);
 }
 
 /// A comment under an article belongs to whoever wrote it; the owner is not

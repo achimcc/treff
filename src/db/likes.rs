@@ -40,8 +40,9 @@ pub async fn toggle(db: &Db, space: &str, post_id: i64, who: &Identity) -> anyho
 /// like tells `article_owner` instead — or nobody, when the configured
 /// handle answers to no account: the like counts, and no entry is written
 /// for a name that is not a person here. Comments under an article are
-/// ordinary posts and tell their own authors. The owner is refused on their
-/// own article as anybody is on their own post.
+/// ordinary posts and tell their own authors. The owner MAY like an article
+/// (0.10.1; refused until then): the name on it is not theirs and the count
+/// is everybody's — they just get no bell for their own click.
 pub async fn toggle_telling(
     db: &Db,
     space: &str,
@@ -67,16 +68,16 @@ pub async fn toggle_telling(
     let author: String = row.get("author_subject");
     let topic_id: i64 = row.get("topic_id");
     let is_article = row.get::<i64, _>("mirrored") != 0 && row.get::<i64, _>("opens") != 0;
+    if author == who.subject {
+        return Ok(Outcome::OwnPost);
+    }
     // Whose bell rings: the author's — or, for an article, the owner's, if
-    // there is one to ring.
+    // there is one to ring and it is not the person clicking.
     let tell: Option<&str> = if is_article {
-        article_owner
+        article_owner.filter(|owner| *owner != who.subject)
     } else {
         Some(author.as_str())
     };
-    if author == who.subject || tell == Some(who.subject.as_str()) {
-        return Ok(Outcome::OwnPost);
-    }
 
     let removed = sqlx::query("DELETE FROM likes WHERE post_id = ? AND subject = ?")
         .bind(post_id)

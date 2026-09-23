@@ -625,7 +625,6 @@ pub fn space_page(
     bell: Bell,
     category: Option<&Category>,
     topics: &[TopicRow],
-    article_owner: Option<&str>,
 ) -> Markup {
     // Display follows the right: someone who may not open a topic is not shown
     // a button that leads to a refusal.
@@ -656,10 +655,7 @@ pub fn space_page(
                             // underneath — the way to them, on an entry
                             // that shows the text but not the comments.
                             div class="foot" {
-                                // An article is the owner's, whatever name
-                                // stands on it — no heart for them to press.
-                                @let own = post.author_subject == who.subject
-                                    || (topic.dated_by_day && article_owner == Some(who.subject.as_str()));
+                                @let own = post.author_subject == who.subject;
                                 (like_control(lang, post.id, own, likes.as_ref()))
                                 a class="comments" href={ "/t/" (topic.id) } {
                                     @match counts.replies {
@@ -728,10 +724,6 @@ pub struct TopicView<'a> {
     pub handles: &'a std::collections::HashMap<String, String>,
     /// Post id → who likes it, for the heart under each post.
     pub likes: &'a std::collections::HashMap<i64, crate::db::likes::Summary>,
-    /// The subject behind this space's mirrored articles, if the
-    /// configuration names one and an account answers to it: the opening
-    /// post of an article counts as theirs.
-    pub article_owner: Option<&'a str>,
 }
 
 pub fn topic_page(
@@ -749,7 +741,6 @@ pub fn topic_page(
         highlighted,
         handles,
         likes,
-        article_owner,
     } = view;
     let may_reply = category.is_some_and(|c| crate::authz::may_reply(who, c));
     let body = html! {
@@ -821,8 +812,7 @@ pub fn topic_page(
                 // The foot of a post: the heart on the left, and on your own
                 // the pencil and the basket on the right. One row, so a post
                 // ends in a line barely taller than its own text.
-                @let own = post.author_subject == who.subject
-                    || (i == 0 && topic.dated_by_day && article_owner == Some(who.subject.as_str()));
+                @let own = post.author_subject == who.subject;
                 div class="foot" {
                     (like_control(lang, post.id, own, likes.get(&post.id)))
                 // Only on your own — and the display is not the defence: the

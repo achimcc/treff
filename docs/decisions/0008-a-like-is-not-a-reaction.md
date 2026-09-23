@@ -42,7 +42,10 @@ not turn a post into a poll about itself.
    last like taken back removes it. The bell never says something the count
    under the post does not.
 4. **Your own post has no button**, and the route refuses it. Liking
-   yourself would be counted, and the count is the whole point.
+   yourself would be counted, and the count is the whole point. "Your own"
+   is the name on the post: the owner of a space's mirrored articles may
+   like them (0.10.1) — the article is stored under a name nobody signs in
+   as, and the owner's click only rings no bell of their own.
 5. **Reading is the right that is needed.** `may_read` of the space, not
    `may_reply` of the category: somebody who may read an article but not
    comment may still say they liked it.

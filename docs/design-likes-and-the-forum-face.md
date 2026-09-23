@@ -68,10 +68,13 @@ a poll about itself.
   name nobody signs in as, so a like on it would reach nobody. A space may
   name `articles_owner`, the handle of the person who really writes them:
   the like on an article's opening post then tells that account, on that
-  space. Comments under an article keep their own authors. The owner is
-  refused on their own article as anybody is on their own post. A handle
-  no account answers to means the like counts and nobody is told — no
-  guessing, no entry for a name that is not a person here.
+  space. Comments under an article keep their own authors. The owner may
+  like an article like anybody else (0.10.1; refused until then, which
+  took the heart away from the one person who reads every article): the
+  name on it is not theirs and the count is everybody's — they just get no
+  bell for their own click. A handle no account answers to means the like
+  counts and nobody is told — no guessing, no entry for a name that is not
+  a person here.
 
 ## The face of the forum
 

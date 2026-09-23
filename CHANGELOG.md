@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1 — 2026-09-23
+
+- **The owner of a space's articles may like them.** 0.9.1 refused the
+  owner on an article as anybody is refused on their own post — and took
+  the heart away from the one person who reads every article. The name on
+  an article is not theirs and the count is everybody's; the owner's click
+  counts, and rings no bell of their own.
+
 ## 0.10.0 — 2026-09-23
 
 **One bell everywhere.** Until now each host had its own bell: the forum's
