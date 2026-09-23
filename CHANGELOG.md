@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.9.0 — 2026-09-23
+
+Likes, and a clearer face for the forum (plan-stage-7, ADR 0008 — which
+takes "reactions" out of the permanent no-list in design.md §5 for exactly
+one thing).
+
+- **A heart under every post**, with the number. One per person and post;
+  a second click takes it back; your own post shows the number without a
+  button. `POST /p/{id}/like` toggles and comes back at the post, or answers
+  `{"liked", "count"}` as JSON for `like.js` — the third script, on the
+  terms of ADR 0005: without it the like is a form and the page reloads.
+  Reading the space is the right that is needed, not replying.
+- **The author hears about it in the bell, never by mail.** One entry per
+  post — "ben likes your post in …", "cem and 2 others like your post in …"
+  — re-opened by the next like, gone with the last one. `inbox.reason`
+  gains `like`; the migration rebuilds the table. Nothing writes to the
+  outbox for a like.
+- **The front page shows where something is going on:** under the section
+  cards, the ten topics that moved last across all sections, each with its
+  section, its replies and likes, and who wrote last.
+- **A section line on every section page:** the way up, every section, the
+  current one marked.
+- **The topic list counts replies and likes** (of the opening post) and
+  marks a topic that holds something unread for the reader who is looking,
+  with the `*` the bell's list uses.
+- **A topic page says how long it is and where you are:** a meta line
+  under the title (section, replies, following as a quiet control), a
+  number on every post that links to it, and a way back up.
+- A timeline entry says how many comments it has, and leads to them.
+
 ## 0.8.1 — 2026-09-22
 
 - **The `@` list opens under the `@`**, not under the whole field. It followed

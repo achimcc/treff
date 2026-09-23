@@ -199,8 +199,8 @@ async fn a_topic_page_numbers_its_posts_and_says_how_many() {
         .await
         .expect("reply");
     let html = page(&app, FORUM, &format!("/t/{t}"), &ada).await;
-    let meta_at = html.find(r#"<p class="meta">"#).expect("a meta line");
-    let meta = &html[meta_at..html[meta_at..].find("</p>").expect("end") + meta_at];
+    let meta_at = html.find(r#"<div class="meta">"#).expect("a meta line");
+    let meta = &html[meta_at..html[meta_at..].find("</div>").expect("end") + meta_at];
     assert!(meta.contains("1 reply"), "{meta}");
     assert!(meta.contains(r#"href="/c/general""#), "the section: {meta}");
     // The opener follows their own topic, so the control offers to stop.

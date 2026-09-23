@@ -184,6 +184,23 @@ async fn render_the_pages_for_a_look() {
     .await
     .expect("b2");
 
+    // Hearts in every state the pages know: on the reader's own opener (the
+    // number without a button), on somebody else's reply (pressed, by the
+    // reader), and on the reader's article in the blog.
+    treff::db::likes::toggle(&db, "forum.example.org", 1, &ben)
+        .await
+        .expect("ben likes the opener");
+    treff::db::likes::toggle(&db, "forum.example.org", 2, &ada)
+        .await
+        .expect("ada likes the reply");
+    let (_, blog_posts) = treff::db::topics::load_topic(&db, "blog.example.org", 5)
+        .await
+        .expect("load")
+        .expect("the first article");
+    treff::db::likes::toggle(&db, "blog.example.org", blog_posts[0].id, &ben)
+        .await
+        .expect("ben likes the article");
+
     spread_over_a_few_days(&db).await;
 
     let cookie = signed_in(&db, dir.path(), "s1", &["Household"]).await;

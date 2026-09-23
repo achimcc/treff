@@ -400,6 +400,7 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
    reading zeros; `width: 1%` keeps the subject column the wide one. */
 .threads th.n, .threads td.n {
     width: 1%;
+    padding-inline: 1rem .3rem;
     text-align: right;
     white-space: nowrap;
 }
@@ -414,8 +415,6 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 /* SOMETHING HERE WAITS FOR YOU: the `*` the bell's list uses, in front of
    the subject, in the signal colour — the same mark for the same fact. */
 .threads tr.unread .subject a::before { content: "* "; color: var(--on); }
-.threads tr.unread .subject a { color: var(--text); }
-.threads tr.unread .subject a:hover { color: var(--on); }
 
 /* On the front page every row names its section, in the second voice. */
 .threads .byline .section { color: var(--quiet); }
@@ -447,7 +446,7 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
     /* The two numbers become one line under the subject: "2 replies ·
        1 likes", the label from the cell (the catalogue, not the CSS), and a
        zero left out altogether — "– replies" says nothing worth a line. */
-    .threads td.n { display: inline; width: auto; text-align: left; margin-top: .15rem; }
+    .threads td.n { display: inline; width: auto; padding: 0; text-align: left; }
     .threads td.n::after { content: " " attr(data-label); }
     .threads td.n + td.n::before { content: " · "; opacity: .55; }
     .threads td.n.zero { display: none; }
@@ -540,6 +539,7 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 /* Under a timeline entry: how many people wrote underneath, and the way
    to them. */
 .entry .foot .comments {
+    margin-left: auto;
     font-family: var(--mono);
     font-size: 12px;
     color: var(--quiet);
@@ -748,7 +748,10 @@ h2 { font-family: var(--sans); font-size: 1.1rem; margin: 0 0 .25rem; }
 
 /* --- Your own posts ---------------------------------------------------- */
 
-.own {
+/* `div.own` and not `.own`: the heart on your own post is `span.like.own`,
+   and a bare `.own` gave it this `margin-left: auto` too — both then shared
+   the free space and the heart stood in the middle of the line. */
+div.own {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;

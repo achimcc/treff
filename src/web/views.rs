@@ -641,8 +641,11 @@ pub fn space_page(
                             div class="foot" {
                                 (like_control(lang, post.id, post.author_subject == who.subject, likes.as_ref()))
                                 a class="comments" href={ "/t/" (topic.id) } {
-                                    @if counts.replies == 1 { (lang.t("comment_count_one")) }
-                                    @else { (counts.replies) " " (lang.t("comment_count_many")) }
+                                    @match counts.replies {
+                                        0 => (lang.t("no_comments_yet")),
+                                        1 => (lang.t("comment_count_one")),
+                                        n => { (n) " " (lang.t("comment_count_many")) }
+                                    }
                                 }
                             }
                         }
@@ -744,8 +747,11 @@ pub fn topic_page(
         // Following is a FORM and not a link: it changes something, and a
         // GET that changes state is one a link preview or a mail client can
         // trigger without anybody clicking.
+        // A `div`, not a `p`: a form may not stand inside a paragraph, and
+        // a browser closes the paragraph in front of it — the control then
+        // stands outside the line it belongs to (seen in the preview).
         @let replies = posts.len().saturating_sub(1);
-        p class="meta" {
+        div class="meta" {
             @if let Some(category) = category {
                 a class="up" href={ "/c/" (category.slug) } { (category.title) }
                 span class="sep" { " · " }
