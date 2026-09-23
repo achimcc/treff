@@ -201,9 +201,15 @@ live with it. Stage 2 is therefore not optional polish — it is the point at
 which inviting people makes sense.
 
 **Left out permanently, not "later":** RSS (nothing behind a closed sign-in can
-subscribe), federation, trust levels, reactions, private messages, open
+subscribe), federation, trust levels, emoji reactions, private messages, open
 registration. Whoever misses one of these changes this section before writing
 code.
+
+*Reactions* stood in that list until 2026-09-23, and were taken out for one
+thing only: a **like** — one heart per person and post, counted under the
+post and told to its author in the bell, never by mail
+(`design-likes-and-the-forum-face.md`, ADR 0008). A palette of emoji stays
+out, and the ADR says why.
 
 ## 6. Attachments are the attack surface
 
