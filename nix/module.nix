@@ -59,6 +59,17 @@ let
         type = lib.types.listOf lib.types.str;
         description = "Groups whose members may see this space at all.";
       };
+      articlesOwner = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "achim";
+        description = ''
+          The handle (the provider's user name, lower-case) of the person who
+          really writes the mirrored articles. An article is stored under a
+          name nobody signs in as; with this, a like on an article rings that
+          person's bell on this space. Only together with `articles`.
+        '';
+      };
       articles = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         default = null;
@@ -132,6 +143,7 @@ let
     }) space.category;
   }
   // lib.optionalAttrs (space.articles != null) { articles = toString space.articles; }
+  // lib.optionalAttrs (space.articlesOwner != null) { articles_owner = space.articlesOwner; }
   // lib.optionalAttrs (space.home != null) { home = space.home; };
 
   spacesFile = (pkgs.formats.toml { }).generate "treff-spaces.toml" (

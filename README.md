@@ -37,7 +37,7 @@ program at startup instead of opening it up.
 
 ## Status
 
-Early. **v0.9.0** — everything below works and is covered by tests. It is in
+Early. **v0.9.1** — everything below works and is covered by tests. It is in
 service on one host since 2026-09-06. Stage 2 brought notifications and
 search, stage 3 the bell and mentions (`docs/plan-stage-3.md`), stage 4 completing
 `@handle` (`docs/plan-stage-4.md`), stage 5 events from other services and

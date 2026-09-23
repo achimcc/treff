@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1 — 2026-09-23
+
+- **`articles_owner`** (NixOS: `services.treff.spaces.*.articlesOwner`): the
+  handle of the person who really writes a space's mirrored articles. An
+  article is stored under a name nobody signs in as, so until now a like on
+  one reached nobody's bell. With the owner named, it rings theirs — on that
+  space. Comments under an article keep their own authors; the owner is
+  refused on their own article as anybody is on their own post; a handle no
+  account answers to means the like counts and nobody is told. Legal only
+  together with `articles`, and it has to be a handle, or treff does not
+  start.
+
 ## 0.9.0 — 2026-09-23
 
 Likes, and a clearer face for the forum (plan-stage-7, ADR 0008 — which

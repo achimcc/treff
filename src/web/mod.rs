@@ -989,9 +989,21 @@ async fn render_space(
         }
     }
 
+    let owner = match articles_owner(app, space).await {
+        Ok(o) => o,
+        Err(e) => return server_error("cannot look up the articles owner", &e),
+    };
     let bell = bell(app, space, who).await;
-    crate::web::views::space_page(space, who, lang, bell, space.category(slug), &rows)
-        .into_response()
+    crate::web::views::space_page(
+        space,
+        who,
+        lang,
+        bell,
+        space.category(slug),
+        &rows,
+        owner.as_deref(),
+    )
+    .into_response()
 }
 
 async fn topic_page(
@@ -1045,6 +1057,10 @@ async fn topic_page(
                 Ok(l) => l,
                 Err(e) => return server_error("cannot look up likes", &e),
             };
+            let owner = match articles_owner(&app, &space).await {
+                Ok(o) => o,
+                Err(e) => return server_error("cannot look up the articles owner", &e),
+            };
             let category = space.category(&topic.category);
             let view = crate::web::views::TopicView {
                 category,
@@ -1054,6 +1070,7 @@ async fn topic_page(
                 highlighted: &highlighted,
                 handles: &handles,
                 likes: &likes,
+                article_owner: owner.as_deref(),
             };
             crate::web::views::topic_page(&space, &who, lang, bell, view).into_response()
         }
@@ -1210,7 +1227,11 @@ async fn like_post(
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
     }
-    match crate::db::likes::toggle(&app.db, &space.host, id, &who).await {
+    let owner = match articles_owner(&app, &space).await {
+        Ok(o) => o,
+        Err(e) => return server_error("cannot look up the articles owner", &e),
+    };
+    match crate::db::likes::toggle_telling(&app.db, &space.host, id, &who, owner.as_deref()).await {
         Ok(crate::db::likes::Outcome::NotFound) => not_found(),
         Ok(crate::db::likes::Outcome::OwnPost) => forbidden(),
         Ok(crate::db::likes::Outcome::Toggled {
@@ -1233,6 +1254,16 @@ async fn like_post(
             }
         }
         Err(e) => server_error("cannot toggle a like", &e),
+    }
+}
+
+/// The person behind this space's mirrored articles, if the configuration
+/// names one and an account answers to the handle. Resolved here, where the
+/// configuration is; the storage layer and the pages only learn whom.
+async fn articles_owner(app: &AppState, space: &Space) -> anyhow::Result<Option<String>> {
+    match &space.articles_owner {
+        Some(handle) => crate::db::accounts::subject_of_handle(&app.db, handle).await,
+        None => Ok(None),
     }
 }
 

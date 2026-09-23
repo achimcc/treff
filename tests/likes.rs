@@ -317,3 +317,173 @@ async fn the_state_of_a_heart_can_be_read_without_changing_it() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// --- Articles: the owner behind "treff" ------------------------------------
+//
+// A mirrored article is stored under a name nobody signs in as. `articles_owner`
+// names the person who really writes them, so a like on an article reaches
+// somebody's bell.
+
+const OWNED_BLOG: &str = r#"
+[[space]]
+host           = "blog.example.org"
+title          = "Notes"
+view           = "timeline"
+read           = ["Household"]
+articles       = "ARTICLES"
+articles_owner = "OWNER"
+
+  [[space.category]]
+  slug  = "notes"
+  title = "Notes"
+  post  = []
+  reply = ["Household"]
+"#;
+
+/// A blog fed by one article, owned by `owner` — and the article's opening
+/// post.
+async fn blog_owned_by(owner: &str) -> (tempfile::TempDir, treff::db::Db, axum::Router, i64, i64) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let articles = dir.path().join("articles");
+    std::fs::create_dir(&articles).expect("mkdir");
+    std::fs::write(
+        articles.join("2026-09-01-audiobooks.md"),
+        "---\ntitle: Audiobooks are here\n---\n\nThere is a new service.\n",
+    )
+    .expect("write");
+    let db = treff::db::Db::open(&dir.path().join("t.db"))
+        .await
+        .expect("open");
+    treff::articles::mirror(&db, BLOG, "notes", &articles, "title", "2026-09-23")
+        .await
+        .expect("mirror");
+    let config = OWNED_BLOG
+        .replace("ARTICLES", articles.to_str().expect("utf-8"))
+        .replace("OWNER", owner);
+    let state = treff::web::AppState::new(
+        treff::config::Config::parse(&config).expect("configuration"),
+        db.clone(),
+        treff::auth::OidcSettings {
+            issuer: "http://127.0.0.1:1/".into(),
+            client_id: "t".into(),
+            client_secret: "t".into(),
+            group_claim: "groups".into(),
+        },
+        dir.path(),
+    )
+    .expect("state");
+    let app = treff::web::router(state);
+    let t: i64 = sqlx::query_scalar("SELECT id FROM topics WHERE source_key IS NOT NULL")
+        .fetch_one(db.pool())
+        .await
+        .expect("the article");
+    let (_, posts) = treff::db::topics::load_topic(&db, BLOG, t)
+        .await
+        .expect("load")
+        .expect("there");
+    (dir, db, app, t, posts[0].id)
+}
+
+fn badge(html: &str) -> Option<String> {
+    let at = html.find("class=\"unread\">")? + "class=\"unread\">".len();
+    Some(html[at..].split('<').next()?.to_string())
+}
+
+#[tokio::test]
+async fn a_like_on_an_article_rings_the_owners_bell() {
+    let (dir, db, app, _, p) = blog_owned_by("achim").await;
+    let achim = signed_in(&db, dir.path(), "achim", &["Household"]).await;
+    let ben = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    let response = app
+        .clone()
+        .oneshot(post(BLOG, &format!("/p/{p}/like"), &ben))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    let html = page(&app, BLOG, "/notifications", &achim).await;
+    assert_eq!(badge(&html).as_deref(), Some("1"), "{html}");
+    assert!(
+        html.contains(r#"<span class="name">ben the tester</span> likes your post in <b>Audiobooks are here</b>"#),
+        "{html}"
+    );
+    assert_eq!(
+        badge(&page(&app, BLOG, "/", &ben).await),
+        None,
+        "the liker hears nothing"
+    );
+    let stray: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM inbox WHERE subject = 'treff:article'")
+            .fetch_one(db.pool())
+            .await
+            .expect("count");
+    assert_eq!(stray, 0, "nothing is written for the name on the file");
+}
+
+/// The article is the owner's in every sense but the name on it.
+#[tokio::test]
+async fn the_owner_cannot_like_their_own_article() {
+    let (dir, db, app, _, p) = blog_owned_by("achim").await;
+    let achim = signed_in(&db, dir.path(), "achim", &["Household"]).await;
+    let response = app
+        .clone()
+        .oneshot(post(BLOG, &format!("/p/{p}/like"), &achim))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let html = page(&app, BLOG, "/", &achim).await;
+    assert!(
+        like_form(&html, p).is_none(),
+        "no button on your own article: {html}"
+    );
+}
+
+/// A comment under an article belongs to whoever wrote it; the owner is not
+/// told about likes on other people's words.
+#[tokio::test]
+async fn a_like_on_a_comment_reaches_its_author_not_the_owner() {
+    let (dir, db, app, t, _) = blog_owned_by("achim").await;
+    let achim = signed_in(&db, dir.path(), "achim", &["Household"]).await;
+    let ben = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    let cem = signed_in(&db, dir.path(), "cem", &["Household"]).await;
+    let c = treff::db::topics::add_reply(&db, t, "nice", &person("ben"))
+        .await
+        .expect("comment");
+    app.clone()
+        .oneshot(post(BLOG, &format!("/p/{c}/like"), &cem))
+        .await
+        .expect("response");
+    assert_eq!(
+        badge(&page(&app, BLOG, "/", &ben).await).as_deref(),
+        Some("1")
+    );
+    // achim follows the article? No — nobody follows a mirrored article by
+    // writing it, so the only thing that could ring is the like, and it
+    // must not.
+    let html = page(&app, BLOG, "/notifications", &achim).await;
+    // The list only: the bell in the header carries the words as data
+    // attributes for bell.js on every page.
+    let list = html.split("<main").nth(1).expect("a main element");
+    assert!(!list.contains("likes your post"), "{list}");
+}
+
+/// A handle that matches nobody: the like counts, nobody is told — no
+/// guessing, no entry for a name that is not a person here.
+#[tokio::test]
+async fn an_owner_nobody_answers_to_is_told_nothing() {
+    let (dir, db, app, _, p) = blog_owned_by("ghost").await;
+    let ben = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    let response = app
+        .clone()
+        .oneshot(post_json(BLOG, &format!("/p/{p}/like"), &ben))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let json: serde_json::Value = serde_json::from_str(&body_of(response).await).expect("json");
+    assert_eq!(json["count"], 1);
+    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM inbox")
+        .fetch_one(db.pool())
+        .await
+        .expect("count");
+    assert_eq!(entries, 0);
+}

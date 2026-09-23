@@ -31,9 +31,29 @@ pub enum Outcome {
 /// Turns the viewer's like on a post on or off, and keeps the author's
 /// entry in the bell true to the count — in one transaction.
 pub async fn toggle(db: &Db, space: &str, post_id: i64, who: &Identity) -> anyhow::Result<Outcome> {
+    toggle_telling(db, space, post_id, who, None).await
+}
+
+/// `toggle`, with the person behind the space's mirrored articles.
+///
+/// An article's opening post is stored under a name nobody signs in as; its
+/// like tells `article_owner` instead — or nobody, when the configured
+/// handle answers to no account: the like counts, and no entry is written
+/// for a name that is not a person here. Comments under an article are
+/// ordinary posts and tell their own authors. The owner is refused on their
+/// own article as anybody is on their own post.
+pub async fn toggle_telling(
+    db: &Db,
+    space: &str,
+    post_id: i64,
+    who: &Identity,
+    article_owner: Option<&str>,
+) -> anyhow::Result<Outcome> {
     let mut tx = db.pool().begin().await?;
     let Some(row) = sqlx::query(
-        "SELECT p.author_subject, p.topic_id
+        "SELECT p.author_subject, p.topic_id,
+                (t.source_key IS NOT NULL) AS mirrored,
+                p.id = (SELECT min(id) FROM posts WHERE topic_id = p.topic_id) AS opens
            FROM posts p JOIN topics t ON t.id = p.topic_id
           WHERE p.id = ? AND t.space = ?",
     )
@@ -46,7 +66,15 @@ pub async fn toggle(db: &Db, space: &str, post_id: i64, who: &Identity) -> anyho
     };
     let author: String = row.get("author_subject");
     let topic_id: i64 = row.get("topic_id");
-    if author == who.subject {
+    let is_article = row.get::<i64, _>("mirrored") != 0 && row.get::<i64, _>("opens") != 0;
+    // Whose bell rings: the author's — or, for an article, the owner's, if
+    // there is one to ring.
+    let tell: Option<&str> = if is_article {
+        article_owner
+    } else {
+        Some(author.as_str())
+    };
+    if author == who.subject || tell == Some(who.subject.as_str()) {
         return Ok(Outcome::OwnPost);
     }
 
@@ -66,6 +94,10 @@ pub async fn toggle(db: &Db, space: &str, post_id: i64, who: &Identity) -> anyho
             .bind(now)
             .execute(&mut *tx)
             .await?;
+    }
+    if let Some(tell) = tell
+        && liked
+    {
         // One row per post for its author; a like on a post whose entry was
         // read makes it news again. `WHERE reason = 'like'` guards the key:
         // an author never holds a reply or mention entry for their own
@@ -77,7 +109,7 @@ pub async fn toggle(db: &Db, space: &str, post_id: i64, who: &Identity) -> anyho
                 SET read_at = NULL, created_at = excluded.created_at
               WHERE reason = 'like'",
         )
-        .bind(&author)
+        .bind(tell)
         .bind(space)
         .bind(topic_id)
         .bind(post_id)
@@ -91,9 +123,9 @@ pub async fn toggle(db: &Db, space: &str, post_id: i64, who: &Identity) -> anyho
         .await?;
     if count == 0 {
         // Nobody likes it any more: an entry saying somebody does would be
-        // a lie the reader can check under the post.
-        sqlx::query("DELETE FROM inbox WHERE subject = ? AND post_id = ? AND reason = 'like'")
-            .bind(&author)
+        // a lie the reader can check under the post. By post, not by
+        // subject: whoever was told, the entry goes.
+        sqlx::query("DELETE FROM inbox WHERE post_id = ? AND reason = 'like'")
             .bind(post_id)
             .execute(&mut *tx)
             .await?;

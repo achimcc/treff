@@ -83,6 +83,7 @@ mod tests {
             read: read.iter().map(|g| (*g).to_string()).collect(),
             categories: vec![],
             articles: None,
+            articles_owner: None,
             attachment_max_bytes: 8 * 1024 * 1024,
             title_key: "title".into(),
             home: None,

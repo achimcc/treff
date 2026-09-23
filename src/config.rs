@@ -21,6 +21,10 @@ pub enum ConfigError {
     InvalidSlug { space: String, slug: String },
     #[error("no time zone is called {0:?}")]
     UnknownTimeZone(String),
+    #[error("space {0} names an articles_owner but mirrors no articles")]
+    OwnerWithoutArticles(String),
+    #[error("space {space}: articles_owner {owner:?} is not a handle ([a-z0-9._-], up to 64)")]
+    OwnerNotAHandle { space: String, owner: String },
     #[error("[events] names the space {0}, which is not configured")]
     EventsSpaceUnknown(String),
 }
@@ -71,6 +75,13 @@ pub struct Space {
     /// second mechanism for no gain.
     #[serde(default)]
     pub articles: Option<String>,
+    /// Who really writes the mirrored articles — a handle. An article is
+    /// stored under a name nobody signs in as (`articles::article_author`),
+    /// so without this a like on an article reaches nobody's bell. Comments
+    /// under an article keep their own authors. Lower-cased and checked
+    /// like every handle; legal only together with `articles`.
+    #[serde(default)]
+    pub articles_owner: Option<String>,
     /// The largest attachment this space accepts, in bytes. The design asks
     /// for it to be configurable; the default is what a photograph from a
     /// phone weighs.
@@ -163,6 +174,18 @@ impl Config {
 
         for s in &mut c.spaces {
             s.host = normalise(&s.host);
+            if let Some(owner) = s.articles_owner.take() {
+                if s.articles.is_none() {
+                    return Err(ConfigError::OwnerWithoutArticles(s.host.clone()));
+                }
+                let Some(handle) = crate::auth::checked_handle(&owner) else {
+                    return Err(ConfigError::OwnerNotAHandle {
+                        space: s.host.clone(),
+                        owner,
+                    });
+                };
+                s.articles_owner = Some(handle);
+            }
         }
         if let Some(events) = c.events.as_mut() {
             events.space = normalise(&events.space);
@@ -213,6 +236,35 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const BLOG: &str = "[[space]]\nhost = \"blog.example.org\"\ntitle = \"N\"\nview = \"timeline\"\nread = [\"H\"]\n";
+    const NOTES: &str =
+        "\n[[space.category]]\nslug = \"notes\"\ntitle = \"Notes\"\npost = []\nreply = [\"H\"]\n";
+
+    /// `articles_owner` names who really writes the mirrored articles. It is
+    /// a handle, and it makes no sense without `articles`.
+    #[test]
+    fn an_articles_owner_needs_articles_and_has_to_be_a_handle() {
+        let ok = Config::parse(&format!(
+            "{BLOG}articles = \"/etc/treff/articles\"\narticles_owner = \"Achim\"\n{NOTES}"
+        ))
+        .expect("a valid configuration");
+        assert_eq!(ok.spaces[0].articles_owner.as_deref(), Some("achim"));
+
+        let without = Config::parse(&format!("{BLOG}articles_owner = \"achim\"\n{NOTES}"));
+        assert!(
+            matches!(without, Err(ConfigError::OwnerWithoutArticles(ref h)) if h == "blog.example.org"),
+            "{without:?}"
+        );
+
+        let odd = Config::parse(&format!(
+            "{BLOG}articles = \"/etc/treff/articles\"\narticles_owner = \"not a handle\"\n{NOTES}"
+        ));
+        assert!(
+            matches!(odd, Err(ConfigError::OwnerNotAHandle { .. })),
+            "{odd:?}"
+        );
+    }
 
     const EXAMPLE: &str = r#"
 [[space]]

@@ -64,6 +64,14 @@ a poll about itself.
 - **Opening the topic reads it**, like every other entry of that topic;
   "mark all as read" includes it. The badge counts one per post with an
   unread like entry.
+- **An article has an owner** (0.9.1). A mirrored article is stored under a
+  name nobody signs in as, so a like on it would reach nobody. A space may
+  name `articles_owner`, the handle of the person who really writes them:
+  the like on an article's opening post then tells that account, on that
+  space. Comments under an article keep their own authors. The owner is
+  refused on their own article as anybody is on their own post. A handle
+  no account answers to means the like counts and nobody is told — no
+  guessing, no entry for a name that is not a person here.
 
 ## The face of the forum
 
