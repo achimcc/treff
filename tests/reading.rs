@@ -258,6 +258,7 @@ async fn no_page_carries_a_script_element_but_its_own() {
         let ours = [
             r#"<script src="/assets/mention.js" defer></script>"#,
             r#"<script src="/assets/bell.js" defer></script>"#,
+            r#"<script src="/assets/like.js" defer></script>"#,
         ];
         let mut rest = html.clone();
         for tag in ours {

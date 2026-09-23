@@ -305,3 +305,74 @@ async fn the_overlay_asks_for_the_same_entries_as_the_page() {
     assert_eq!(body["entries"][0]["title"], "Holiday");
     assert_eq!(body["entries"][0]["link"], format!("/t/{t}#p{first}"));
 }
+
+/// A LIKE RINGS THE AUTHOR'S BELL — one line per post, the latest name
+/// first — and nobody else's (stage 7, ADR 0008).
+#[tokio::test]
+async fn a_like_rings_the_authors_bell_once_per_post() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let ben = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    let t = treff::db::topics::create_topic(
+        &db,
+        FORUM,
+        "general",
+        "Projector",
+        "Where?",
+        &person("ada"),
+    )
+    .await
+    .expect("topic");
+    let (_, posts) = treff::db::topics::load_topic(&db, FORUM, t)
+        .await
+        .expect("load")
+        .expect("there");
+    let p = posts[0].id;
+
+    treff::db::likes::toggle(&db, FORUM, p, &person("ben"))
+        .await
+        .expect("like");
+    let html = page(&app, FORUM, "/notifications", &ada).await;
+    assert_eq!(badge(&html).as_deref(), Some("1"));
+    assert!(
+        html.contains(
+            r#"<span class="name">ben the tester</span> gefaellt dein Beitrag in <b>Projector</b>"#
+        ),
+        "{html}"
+    );
+    assert!(html.contains(&format!(r##"href="/t/{t}#p{p}""##)), "{html}");
+    assert_eq!(
+        badge(&page(&app, FORUM, "/", &ben).await),
+        None,
+        "the liker hears nothing"
+    );
+
+    treff::db::likes::toggle(&db, FORUM, p, &person("cem"))
+        .await
+        .expect("like");
+    let html = page(&app, FORUM, "/notifications", &ada).await;
+    assert_eq!(badge(&html).as_deref(), Some("1"), "still one line");
+    assert!(
+        html.contains(r#"<span class="name">cem the tester</span> und 1 weiteren gefaellt dein Beitrag in <b>Projector</b>"#),
+        "{html}"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(get(FORUM, "/notifications.json", &ada))
+        .await
+        .expect("response");
+    let json: serde_json::Value = serde_json::from_str(&body_of(response).await).expect("json");
+    assert_eq!(json["unread"], 1);
+    assert_eq!(json["entries"][0]["kind"], "likes");
+    assert_eq!(json["entries"][0]["count"], 2);
+    assert_eq!(json["entries"][0]["author"], "cem the tester");
+    assert_eq!(json["entries"][0]["link"], format!("/t/{t}#p{p}"));
+
+    page(&app, FORUM, &format!("/t/{t}"), &ada).await;
+    assert_eq!(
+        badge(&page(&app, FORUM, "/", &ada).await),
+        None,
+        "opening the topic reads it"
+    );
+}

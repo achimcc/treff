@@ -92,6 +92,16 @@
       link.appendChild(document.createTextNode(entry.author + " " + t("mentioned-you-in") + " "));
       link.appendChild(el("b", "", entry.title));
       sub.textContent = when(entry.at);
+    } else if (entry.kind === "likes") {
+      // The latest name leads, the rest is a number — the same words as
+      // the page: "Cem gefaellt dein Beitrag in", "Ada und 2 weiteren …".
+      var others = (Number(entry.count) || 1) - 1;
+      var said = others > 0
+        ? t("and") + " " + others + " " + t("others-like-your-post-in")
+        : t("likes-your-post-in");
+      link.appendChild(document.createTextNode(entry.author + " " + said + " "));
+      link.appendChild(el("b", "", entry.title));
+      sub.textContent = when(entry.at);
     } else if (entry.kind === "film_available" || entry.kind === "film_failed") {
       if (entry.kind === "film_available") link.appendChild(document.createTextNode("🎬 "));
       link.appendChild(el("b", "", entry.title));

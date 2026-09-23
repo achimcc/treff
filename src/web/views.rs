@@ -127,6 +127,9 @@ pub fn layout_with_search(
                               data-t-mentioned-you-in=(lang.t("mentioned_you_in"))
                               data-t-film-available=(lang.t("film_available"))
                               data-t-film-failed=(lang.t("film_failed"))
+                              data-t-likes-your-post-in=(lang.t("likes_your_post_in"))
+                              data-t-and=(lang.t("and"))
+                              data-t-others-like-your-post-in=(lang.t("others_like_your_post_in"))
                               data-t-unread=(lang.t("unread"))
                               aria-label=(bell_label(lang, bell)) title=(bell_label(lang, bell)) {
                                 (icon_bell())

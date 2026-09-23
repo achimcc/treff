@@ -20,7 +20,9 @@
      data-t-new-reply-in="neue Antwort in" data-t-new-replies-in="neue Antworten in"
      data-t-reply-in="Antwort in" data-t-replies-in="Antworten in" data-t-latest-from="zuletzt von"
      data-t-mentioned-you-in="hat dich erwaehnt in" data-t-film-available="ist da"
-     data-t-film-failed="konnte nicht besorgt werden" data-t-unread="ungelesen">B</a>
+     data-t-film-failed="konnte nicht besorgt werden" data-t-unread="ungelesen"
+     data-t-likes-your-post-in="gefaellt dein Beitrag in" data-t-and="und"
+     data-t-others-like-your-post-in="weiteren gefaellt dein Beitrag in">B</a>
 </nav></header>
 <main><p id="elsewhere">elsewhere</p></main>
 <pre id="out"></pre>
@@ -43,10 +45,12 @@
     r.expanded = bell.getAttribute("aria-expanded");
     r.empty_says_so = items();
     r.all_leads_to_the_page = panel().querySelector(".bell-all").getAttribute("href");
-    push({ unread: 3, entries: [
+    push({ unread: 5, entries: [
       { kind: "replies", title: "Holiday", count: 2, author: "Ben", at: 1700000000, unread: true, link: "/t/1#p5" },
       { kind: "mention", title: "Film night", author: "Ada", at: 1700000000, unread: true, link: "/t/2#p9" },
       { kind: "film_failed", title: "Dune", reason: "no release", at: 1700000000, unread: true, link: "/notifications/e/7" },
+      { kind: "likes", title: "Projector", count: 1, author: "Cem", at: 1700000000, unread: true, link: "/t/3#p11" },
+      { kind: "likes", title: "Coffee", count: 3, author: "Ada", at: 1700000000, unread: false, link: "/t/4#p12" },
       { kind: "something_new", title: "?", at: 1700000000, unread: true, link: "/x" }
     ] });
     r.badge_follows_the_stream = bell.querySelector(".unread").textContent;
