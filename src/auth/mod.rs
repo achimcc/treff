@@ -192,10 +192,19 @@ impl Sessions {
         // The handle lives on the account, not on the session: it is the one
         // the account row settled on, which is not always the one the token
         // asked for (see `create`).
+        //
+        // THE GROUPS AND `active` COME FROM THE ACCOUNT, NOT THE SESSION
+        // (homeserver audit 3, B93). The session kept the groups of its
+        // sign-in for twelve hours; SCIM (deactivate, delete, leave a group)
+        // writes only the account row, so a person switched off went on
+        // reading and writing with the cookie they had. Now an account that
+        // is gone or inactive is no session, and the groups are the ones the
+        // directory holds at this moment.
         let Some(row) = sqlx::query(
-            "SELECT s.*, a.handle AS handle FROM sessions s
-               LEFT JOIN accounts a ON a.subject = s.subject
-              WHERE s.id = ? AND s.expires_at > ?",
+            "SELECT s.*, a.handle AS handle, a.groups_json AS account_groups
+               FROM sessions s
+               JOIN accounts a ON a.subject = s.subject
+              WHERE s.id = ? AND s.expires_at > ? AND a.active = 1",
         )
         .bind(id)
         .bind(now)
@@ -209,7 +218,8 @@ impl Sessions {
             name: row.get("name"),
             // Unreadable groups mean none. Fail closed even against our own
             // storage.
-            groups: serde_json::from_str(&row.get::<String, _>("groups_json")).unwrap_or_default(),
+            groups: serde_json::from_str(&row.get::<String, _>("account_groups"))
+                .unwrap_or_default(),
             email: row.get("email"),
             handle: row.get("handle"),
         }))
@@ -562,10 +572,17 @@ mod tests {
     async fn a_damaged_groups_column_grants_nothing() {
         // Fail closed even against our own storage: unreadable groups must
         // mean none, never all.
+        // Since B93 the groups are read from the account row.
         let (_d, db) = test_db().await;
         sqlx::query(
+            "INSERT INTO accounts (subject, name, seen_at, groups_json) VALUES ('s', 'N', 0, 'not json')",
+        )
+        .execute(db.pool())
+        .await
+        .expect("account");
+        sqlx::query(
             "INSERT INTO sessions (id, subject, name, groups_json, created_at, expires_at)
-             VALUES ('bent', 's', 'N', 'not json', 0, 99999999999)",
+             VALUES ('bent', 's', 'N', '[\"Freunde\"]', 0, 99999999999)",
         )
         .execute(db.pool())
         .await
@@ -575,6 +592,20 @@ mod tests {
             .expect("load")
             .expect("session");
         assert!(id.groups.is_empty());
+    }
+
+    /// B93: a session whose account row is gone is no session at all.
+    #[tokio::test]
+    async fn a_session_without_an_account_is_none() {
+        let (_d, db) = test_db().await;
+        sqlx::query(
+            "INSERT INTO sessions (id, subject, name, groups_json, created_at, expires_at)
+             VALUES ('waise', 'niemand', 'N', '[\"Freunde\"]', 0, 99999999999)",
+        )
+        .execute(db.pool())
+        .await
+        .expect("insert");
+        assert!(Sessions::load(&db, "waise").await.expect("load").is_none());
     }
 
     #[test]
