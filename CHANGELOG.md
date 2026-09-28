@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.2 — 2026-09-28
+
+- **A session follows the directory.** A session kept the groups of its
+  sign-in for twelve hours, and SCIM — leaving a group, being deactivated
+  or deleted — wrote only the account row. Somebody switched off went on
+  reading and writing with the cookie they had. A session now takes its
+  groups from the account at every request, and an inactive or missing
+  account is no session (homeserver audit 3, B93).
+
 ## 0.10.1 — 2026-09-23
 
 - **The owner of a space's articles may like them.** 0.9.1 refused the
