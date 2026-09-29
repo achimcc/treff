@@ -109,8 +109,18 @@ pub fn claims_to_identity(
 /// nothing — never a repaired version of itself. A handle is matched against
 /// what people type after an `@`, and one that had been "fixed" on the way in
 /// would be matched by something its owner never chose.
+///
+/// **ASCII FIRST, THEN THE FOLD** (homeserver audit 3, B116). Unicode
+/// lower-casing maps the Kelvin sign U+212A to an ASCII `k`: `\u{212A}onrad`
+/// came out as `konrad`, somebody else's handle, and passed the ASCII check
+/// that followed. Only ASCII is folded now, so nothing outside it can turn
+/// into a handle.
 pub fn checked_handle(raw: &str) -> Option<String> {
-    let h = raw.trim().to_lowercase();
+    let raw = raw.trim();
+    if !raw.is_ascii() {
+        return None;
+    }
+    let h = raw.to_ascii_lowercase();
     let fits = !h.is_empty()
         && h.len() <= 64
         && h.bytes()
@@ -240,6 +250,21 @@ impl Sessions {
         )
     }
 
+    /// Deletes every session that is over, and says how many.
+    ///
+    /// `load` already cannot find them; this is about the rows (homeserver
+    /// audit 3, B118). Each carries a name, groups and an address, and
+    /// without a purge they piled up in every snapshot and every export for
+    /// as long as the database lived. The account row is untouched — mail on
+    /// a Thursday still needs its address.
+    pub async fn purge_expired(db: &Db) -> anyhow::Result<u64> {
+        let done = sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
+            .bind(crate::db::topics::now())
+            .execute(db.pool())
+            .await?;
+        Ok(done.rows_affected())
+    }
+
     pub async fn destroy(db: &Db, id: &str) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM sessions WHERE id = ?")
             .bind(id)
@@ -297,6 +322,24 @@ mod tests {
         assert_eq!(h(json!(42)), None, "not a string, not a handle");
         let none = claims_to_identity("s", None, &json!({}), "groups");
         assert_eq!(none.handle, None, "no claim, no handle, no complaint");
+    }
+
+    /// NOTHING OUTSIDE ASCII IS FOLDED INTO A HANDLE (homeserver audit 3,
+    /// B116). Unicode lower-casing turns the Kelvin sign U+212A into an ASCII
+    /// `k`, so `\u{212A}onrad` became `konrad` — somebody else's handle —
+    /// and only then was the result checked for ASCII. The check comes first
+    /// now; what is left to fold is ASCII upper case, and nothing else.
+    #[test]
+    fn a_letter_that_only_folds_into_ascii_is_not_a_handle() {
+        for raw in [
+            "\u{212A}onrad", // KELVIN SIGN, lower-cases to `k`
+            "\u{212A}ONRAD",
+            "\u{0130}da",     // LATIN CAPITAL I WITH DOT ABOVE
+            "konrad\u{200b}", // a zero-width space at the end
+        ] {
+            assert_eq!(checked_handle(raw), None, "{raw:?}");
+        }
+        assert_eq!(checked_handle("Konrad").as_deref(), Some("konrad"));
     }
 
     #[test]
@@ -555,6 +598,43 @@ mod tests {
         .await
         .expect("insert");
         assert!(Sessions::load(&db, "old").await.expect("load").is_none());
+    }
+
+    /// AN EXPIRED SESSION IS DELETED, NOT MERELY UNUSED (homeserver audit 3,
+    /// B118). A session row carries a name, groups and an address; kept
+    /// forever, every one of them went into every snapshot and every export.
+    /// The purge takes what is over and leaves what is not.
+    #[tokio::test]
+    async fn an_expired_session_is_purged_and_a_live_one_is_not() {
+        let (_d, db) = test_db().await;
+        let who = Identity {
+            subject: "s".into(),
+            name: "N".into(),
+            groups: vec![],
+            email: Some("n@example.org".into()),
+            handle: None,
+        };
+        let live = Sessions::create(&db, &who).await.expect("create");
+        sqlx::query(
+            "INSERT INTO sessions (id, subject, name, groups_json, email, created_at, expires_at)
+             VALUES ('old', 's', 'N', '[]', 'n@example.org', 0, 1)",
+        )
+        .execute(db.pool())
+        .await
+        .expect("insert");
+
+        assert_eq!(Sessions::purge_expired(&db).await.expect("purge"), 1);
+        let left: Vec<String> = sqlx::query_scalar("SELECT id FROM sessions")
+            .fetch_all(db.pool())
+            .await
+            .expect("ids");
+        assert_eq!(left, vec![live.clone()]);
+        assert!(Sessions::load(&db, &live).await.expect("load").is_some());
+        assert_eq!(
+            Sessions::purge_expired(&db).await.expect("again"),
+            0,
+            "nothing twice"
+        );
     }
 
     #[tokio::test]

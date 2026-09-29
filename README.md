@@ -130,6 +130,11 @@ leak of the bell's, which only reads, must not open the SCIM door, which
 writes who exists. A token file without `TREFF_INTERNAL_LISTEN` stops treff at
 startup rather than staying quietly shut.
 
+The bell's `X-Treff-User` must be the person's user name **byte for byte** —
+the one the directory (SCIM) holds for the account, or, without a directory
+entry, the handle itself. A name that merely folds into a handle (`Konrad`
+for `konrad`) gets an empty bell, like a stranger.
+
 There is no redirect-URI setting. Each space is sent back to
 `https://<its host>/auth/callback`, so **register one redirect URI per space**
 with your provider. A single one could only ever be right for a single space:
@@ -230,6 +235,36 @@ With Nix, the flake offers a package and a module:
 The module generates the configuration from Nix, so a wrong view or a
 malformed slug fails the build. `nix flake check` runs the unit tests, the
 integration tests and a NixOS VM test.
+
+### Refusals in the log
+
+Every refusal is one line on stderr (the journal, under systemd), always
+the same six fields in the same order, never quoted:
+
+```text
+treff: refused kind=<kind> status=<code> method=<method> host=<host> path=<path> reason=<reason>
+```
+
+| `kind` | `reason` | what happened |
+|---|---|---|
+| `host` | `unknown` | a `Host` no space answers to (403) |
+| `csrf` | `cross-site`, `same-site`, `none`, `other` | a change asked for from another site (403) |
+| `cookie` | `undecryptable` | a session cookie that does not decrypt — forged, or from an old key (303 to the sign-in) |
+| `session` | `gone` | a cookie whose session is over: expired, signed out, account switched off (303) |
+| `session` | `stream` | a live bell ended because its session did (`status=-`) |
+| `login` | `provider`, `malformed`, `not-started`, `exchange` | a sign-in that did not complete (400/403) |
+| `token` | `events`, `bell`, `scim` | a wrong or missing token at the internal door (401) |
+| `forbidden` | `-` | signed in, and not allowed (403) |
+| `streams` | `limit` | one live bell too many for one person (429) |
+
+`host` and `path` come from the request and are cut to `[A-Za-z0-9._~:/%+@-]`
+(anything else is `?`, at most 128 characters, `-` when empty); the query
+string, cookies, tokens and user names never appear. A first visit without
+a cookie is not a refusal and writes nothing.
+
+One person holds at most eight live bells per door; a bell whose session
+ends closes at the next change, or within a minute. Expired sessions are
+deleted every hour.
 
 ## Backups
 

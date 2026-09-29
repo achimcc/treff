@@ -330,6 +330,157 @@ async fn foreign_groups_and_odd_users_get_an_empty_bell() {
     }
 }
 
+/// THE DOOR ANSWERS TO THE NAME, NOT TO WHAT IT FOLDS INTO (homeserver
+/// audit 3, B116). The proxy names the person with their user name; the
+/// door used to fold it (`Konrad` -> `konrad`) and hand out the bell of
+/// whoever held the folded handle. A second account whose name differs only
+/// in case — or, before the ASCII check, by a Kelvin sign — read somebody
+/// else's bell. Now the header has to BE the handle, byte for byte.
+#[tokio::test]
+async fn a_name_that_only_folds_into_a_handle_is_nobody() {
+    let (dir, db, _app) = setup_with_db().await;
+    let app = internal(&db, Some(EVENTS), Some(BELL));
+    signed_in(&db, dir.path(), "konrad", &["Household"]).await;
+    let konrad = treff::authz::Identity {
+        subject: "konrad".into(),
+        name: "konrad".into(),
+        groups: vec!["Household".into()],
+        email: None,
+        handle: Some("konrad".into()),
+    };
+    let ada = treff::authz::Identity {
+        subject: "ada".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+        handle: Some("ada".into()),
+    };
+    let topic = treff::db::topics::create_topic(&db, FORUM, "general", "Mine", "B", &konrad)
+        .await
+        .expect("topic");
+    treff::db::topics::add_reply(&db, topic, "hi", &ada)
+        .await
+        .expect("reply");
+
+    for user in ["Konrad", "KONRAD", " konrad"] {
+        let body = json(
+            app.clone()
+                .oneshot(bell(BELL, user, "Household"))
+                .await
+                .expect("r"),
+        )
+        .await;
+        assert_eq!(body["unread"], 0, "{user:?}: {body}");
+    }
+    let kelvin = Request::builder()
+        .uri("/internal/bell")
+        .header("authorization", format!("Bearer {BELL}"))
+        .header(
+            "x-treff-user",
+            axum::http::HeaderValue::from_bytes("\u{212A}onrad".as_bytes()).expect("obs-text"),
+        )
+        .header("x-treff-groups", "Household")
+        .body(Body::empty())
+        .expect("request");
+    let body = json(app.clone().oneshot(kelvin).await.expect("r")).await;
+    assert_eq!(body["unread"], 0, "Kelvin: {body}");
+
+    // The positive control: the name itself still rings.
+    let body = json(
+        app.oneshot(bell(BELL, "konrad", "Household"))
+            .await
+            .expect("r"),
+    )
+    .await;
+    assert_eq!(body["unread"], 1, "{body}");
+}
+
+/// Somebody who never came to the forum is named by the handle too: the
+/// events of `konrad` are not the events of `Konrad`.
+#[tokio::test]
+async fn events_before_the_first_sign_in_answer_to_the_handle_only() {
+    let (_dir, db, _app) = setup_with_db().await;
+    let app = internal(&db, Some(EVENTS), Some(BELL));
+    app.clone()
+        .oneshot(post_event(EVENTS, DUNE))
+        .await
+        .expect("event");
+    let other = json(
+        app.clone()
+            .oneshot(bell(BELL, "Konrad", "Household"))
+            .await
+            .expect("r"),
+    )
+    .await;
+    assert_eq!(other["unread"], 0, "{other}");
+    let own = json(
+        app.oneshot(bell(BELL, "konrad", "Household"))
+            .await
+            .expect("r"),
+    )
+    .await;
+    assert_eq!(own["unread"], 1, "{own}");
+}
+
+/// With a directory entry, the door answers to the user name the directory
+/// holds — so a person whose name has capitals keeps their bell, and the
+/// lower-case name, a different person in the identity provider, does not
+/// get it.
+#[tokio::test]
+async fn the_directory_name_is_the_one_the_door_answers_to() {
+    let (_dir, db, _app) = setup_with_db().await;
+    let app = internal(&db, Some(EVENTS), Some(BELL));
+    let subject = "7b0c1f7e-9a51-4d0e-8a4e-2f3b1c5d6e7f";
+    treff::db::directory::put_user(
+        &db,
+        &treff::db::directory::User {
+            id: subject.into(),
+            user_name: "Konrad".into(),
+            display_name: "Konrad".into(),
+            email: None,
+            active: true,
+        },
+    )
+    .await
+    .expect("user");
+    let konrad = treff::authz::Identity {
+        subject: subject.into(),
+        name: "Konrad".into(),
+        groups: vec!["Household".into()],
+        email: None,
+        handle: Some("konrad".into()),
+    };
+    let ada = treff::authz::Identity {
+        subject: "ada".into(),
+        name: "Ada".into(),
+        groups: vec!["Household".into()],
+        email: None,
+        handle: Some("ada".into()),
+    };
+    let topic = treff::db::topics::create_topic(&db, FORUM, "general", "Mine", "B", &konrad)
+        .await
+        .expect("topic");
+    treff::db::topics::add_reply(&db, topic, "hi", &ada)
+        .await
+        .expect("reply");
+
+    let own = json(
+        app.clone()
+            .oneshot(bell(BELL, "Konrad", "Household"))
+            .await
+            .expect("r"),
+    )
+    .await;
+    assert_eq!(own["unread"], 1, "{own}");
+    let other = json(
+        app.oneshot(bell(BELL, "konrad", "Household"))
+            .await
+            .expect("r"),
+    )
+    .await;
+    assert_eq!(other["unread"], 0, "{other}");
+}
+
 /// The door is not on the public side. Whatever the public router answers to
 /// `/internal/*`, it is not the bell.
 #[tokio::test]

@@ -230,3 +230,156 @@ async fn the_internal_stream_needs_its_token_and_follows_too() {
     assert_eq!(after["unread"], 1);
     assert_eq!(after["entries"][0]["title"], "Film night");
 }
+
+/// The stream has ended: the body is over, and no frame came first.
+async fn ended(frames: &mut Frames) -> bool {
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(3), frames.next()).await,
+        Ok(None)
+    )
+}
+
+async fn raw_stream(app: &axum::Router, cookie: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/notifications/stream")
+                .header("host", FORUM)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response")
+}
+
+/// A STREAM ENDS WITH ITS SESSION (homeserver audit 3, B115). The person
+/// was fixed when the stream opened, and every later change was answered
+/// for them — after a sign-out, an expiry or a switched-off account, an open
+/// tab went on showing titles, names and numbers. Now each change asks for
+/// the session first, and a session that is over ends the stream instead of
+/// feeding it.
+#[tokio::test]
+async fn a_stream_ends_when_its_session_is_signed_out() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let topic = treff::db::topics::create_topic(&db, FORUM, "general", "T", "B", &person("ada"))
+        .await
+        .expect("topic");
+    let mut s = stream(&app, &ada).await;
+    assert_eq!(next(&mut s).await.expect("on connect")["unread"], 0);
+
+    let out = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/logout")
+                .header("host", FORUM)
+                .header("cookie", &ada)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("logout");
+    assert_eq!(out.status(), StatusCode::SEE_OTHER);
+
+    treff::db::topics::add_reply(&db, topic, "after the sign-out", &person("ben"))
+        .await
+        .expect("reply");
+    assert!(ended(&mut s).await, "the stream went on after the sign-out");
+}
+
+/// The same for the directory: deactivated, or out of every group that may
+/// read — the next change ends the stream (B93 made the SESSION follow the
+/// directory; this is the stream that was opened before).
+#[tokio::test]
+async fn a_stream_ends_when_the_directory_switches_the_account_off() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let mut s = stream(&app, &ada).await;
+    assert_eq!(next(&mut s).await.expect("on connect")["unread"], 0);
+    treff::db::directory::put_user(
+        &db,
+        &treff::db::directory::User {
+            id: "ada".into(),
+            user_name: "ada".into(),
+            display_name: "Ada".into(),
+            email: None,
+            active: false,
+        },
+    )
+    .await
+    .expect("deactivate");
+    assert!(ended(&mut s).await, "the stream outlived the account");
+}
+
+#[tokio::test]
+async fn a_stream_ends_when_its_person_may_no_longer_read() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let mut s = stream(&app, &ada).await;
+    assert_eq!(next(&mut s).await.expect("on connect")["unread"], 0);
+    // Active, and in no group at all: the directory recomputes the groups
+    // from its memberships, of which there are none.
+    treff::db::directory::put_user(
+        &db,
+        &treff::db::directory::User {
+            id: "ada".into(),
+            user_name: "ada".into(),
+            display_name: "Ada".into(),
+            email: None,
+            active: true,
+        },
+    )
+    .await
+    .expect("no groups");
+    assert!(ended(&mut s).await, "the stream outlived the permission");
+}
+
+/// A LIMIT PER PERSON. Every open stream costs a query per change; without
+/// a limit one person could open hundreds. Beyond it: 429 — and a stream
+/// that closes gives its place back.
+#[tokio::test]
+async fn one_person_opens_only_so_many_streams() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let ben = signed_in(&db, dir.path(), "ben", &["Household"]).await;
+    let mut open = Vec::new();
+    for _ in 0..treff::live::STREAMS_PER_PERSON {
+        let r = raw_stream(&app, &ada).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        open.push(r);
+    }
+    let one_more = raw_stream(&app, &ada).await;
+    assert_eq!(one_more.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        raw_stream(&app, &ben).await.status(),
+        StatusCode::OK,
+        "somebody else is not counted against ada"
+    );
+    drop(open.pop());
+    assert_eq!(
+        raw_stream(&app, &ada).await.status(),
+        StatusCode::OK,
+        "a closed stream gives its place back"
+    );
+}
+
+/// The start page's door counts too, per person it names.
+#[tokio::test]
+async fn the_internal_door_opens_only_so_many_streams_per_person() {
+    let (_dir, db, _app) = setup_with_db().await;
+    let app = internal(&db);
+    let mut open = Vec::new();
+    for _ in 0..treff::live::STREAMS_PER_PERSON {
+        let r = app.clone().oneshot(internal_stream(BELL)).await.expect("r");
+        assert_eq!(r.status(), StatusCode::OK);
+        open.push(r);
+    }
+    let r = app.clone().oneshot(internal_stream(BELL)).await.expect("r");
+    assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
+    drop(open.pop());
+    let r = app.oneshot(internal_stream(BELL)).await.expect("r");
+    assert_eq!(r.status(), StatusCode::OK);
+}

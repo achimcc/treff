@@ -18,43 +18,116 @@ use std::future::Future;
 /// takes a quiet connection for a dead one.
 const KEEP_ALIVE: std::time::Duration = std::time::Duration::from_secs(25);
 
+/// How many live streams one person may hold open at once, per door.
+pub const STREAMS_PER_PERSON: usize = 8;
+
+/// How often a quiet stream asks anyway whether it is still somebody's.
+/// Without a change nothing is sent, so nothing leaks while it waits; this
+/// bounds how long a stream whose session is over keeps its place (and a
+/// connection) before it notices.
+const RECHECK: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The open streams, counted per person (homeserver audit 3, B115).
+///
+/// Every open stream costs a query per change, anywhere; without a limit one
+/// person could open hundreds. A [`Slot`] is the permission to hold one open,
+/// and it gives its place back when it is dropped — with the stream, however
+/// the stream ends.
+#[derive(Clone, Default)]
+pub struct Streams {
+    open: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, usize>>>,
+}
+
+impl Streams {
+    /// A place for one more stream of `who`, or `None` beyond
+    /// [`STREAMS_PER_PERSON`].
+    pub fn try_open(&self, who: &str) -> Option<Slot> {
+        // A poisoned lock still holds a count that is right: every change
+        // under it is a single increment or decrement.
+        let mut open = self.open.lock().unwrap_or_else(|p| p.into_inner());
+        let n = open.entry(who.to_string()).or_insert(0);
+        if *n >= STREAMS_PER_PERSON {
+            return None;
+        }
+        *n += 1;
+        Some(Slot {
+            streams: self.clone(),
+            who: who.to_string(),
+        })
+    }
+}
+
+/// One stream's place in [`Streams`]; dropping it gives the place back.
+pub struct Slot {
+    streams: Streams,
+    who: String,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut open = self.streams.open.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(n) = open.get_mut(&self.who) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                open.remove(&self.who);
+            }
+        }
+    }
+}
+
+/// The live bell.
+///
+/// `compute` answers the bell — or `Ok(None)` when this stream is nobody's
+/// any more (the session is over, the person may no longer read), which ENDS
+/// the stream (homeserver audit 3, B115). It is asked at every change and at
+/// least every [`RECHECK`], so the question "whose stream is this?" is asked
+/// again before anything is sent, not once when the stream opened.
 pub fn bell_stream<F, Fut>(
     db: &Db,
+    slot: Slot,
     compute: F,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>> + use<F, Fut>>
 where
     F: Fn() -> Fut + Send + 'static,
-    Fut: Future<Output = anyhow::Result<serde_json::Value>> + Send,
+    Fut: Future<Output = anyhow::Result<Option<serde_json::Value>>> + Send,
 {
     struct State<F> {
         changes: tokio::sync::broadcast::Receiver<String>,
         compute: F,
         last: Option<String>,
         first: bool,
+        // Held for as long as the stream lives; never read.
+        _slot: Slot,
     }
     let state = State {
         changes: db.changes(),
         compute,
         last: None,
         first: true,
+        _slot: slot,
     };
     let stream = futures_util::stream::unfold(state, |mut st| async move {
         loop {
             if !st.first {
                 use tokio::sync::broadcast::error::RecvError;
-                match st.changes.recv().await {
+                match tokio::time::timeout(RECHECK, st.changes.recv()).await {
+                    // Quiet for a while: ask anyway whether this stream is
+                    // still somebody's. An unchanged answer sends nothing.
+                    Err(_) => {}
                     // Whatever space changed: the bell shows them all, and
                     // the query decides whether this person's answer moved.
-                    Ok(_) => {}
+                    Ok(Ok(_)) => {}
                     // Fell behind: something changed, and what exactly is
                     // lost. Asking again is the whole answer.
-                    Err(RecvError::Lagged(_)) => {}
-                    Err(RecvError::Closed) => return None,
+                    Ok(Err(RecvError::Lagged(_))) => {}
+                    Ok(Err(RecvError::Closed)) => return None,
                 }
             }
             st.first = false;
             let value = match (st.compute)().await {
-                Ok(v) => v,
+                Ok(Some(v)) => v,
+                // Nobody's stream any more: the end, not an empty bell.
+                Ok(None) => return None,
                 Err(e) => {
                     // One failed read is not the end of the stream; the next
                     // change asks again.

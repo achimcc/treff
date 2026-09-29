@@ -178,6 +178,16 @@ async fn serve() -> anyhow::Result<()> {
         });
     }
 
+    // HOUSEKEEPING, ALWAYS — not inside the outbox loops, which only run
+    // when mail or a webhook is configured; an instance that notifies nobody
+    // collects sessions all the same (homeserver audit 3, B118).
+    {
+        let db = state.db.clone();
+        tokio::spawn(async move {
+            purge_sessions_forever(db).await;
+        });
+    }
+
     // THE SECOND DOOR, on its own listener (ADR 0006). Its own router: no
     // sessions, no Host routing, nothing the public side has — and nothing
     // of it on the public side.
@@ -205,6 +215,25 @@ async fn serve() -> anyhow::Result<()> {
     eprintln!("treff: listening on {listen}");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Deletes expired sessions, once at start and then every hour, forever.
+///
+/// An hour because nothing reads an expired session anyway (`Sessions::load`
+/// asks for the expiry in its query); this is about how long the rows linger
+/// in the file, snapshots and exports, and an hour is short against the
+/// twelve a session lives.
+async fn purge_sessions_forever(db: treff::db::Db) {
+    const EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+    loop {
+        match treff::auth::Sessions::purge_expired(&db).await {
+            Ok(0) => {}
+            Ok(n) => eprintln!("treff: {n} expired session(s) deleted"),
+            // Like the outbox: a busy database is not a reason to stop.
+            Err(e) => eprintln!("treff: expired sessions could not be deleted: {e}"),
+        }
+        tokio::time::sleep(EVERY).await;
+    }
 }
 
 /// Drains the outbox, forever.

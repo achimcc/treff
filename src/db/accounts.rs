@@ -112,6 +112,19 @@ pub async fn with_handles(db: &Db) -> anyhow::Result<Vec<(String, Known)>> {
         .collect())
 }
 
+/// The user name the directory (SCIM) keeps for the account that holds a
+/// handle — `None` when no account holds it or the account never came
+/// through the directory.
+pub async fn directory_name_of_handle(db: &Db, handle: &str) -> anyhow::Result<Option<String>> {
+    Ok(
+        sqlx::query_scalar("SELECT scim_user_name FROM accounts WHERE handle = ?")
+            .bind(handle)
+            .fetch_optional(db.pool())
+            .await?
+            .flatten(),
+    )
+}
+
 /// The account that answers to a handle, if one does.
 pub async fn subject_of_handle(db: &Db, handle: &str) -> anyhow::Result<Option<String>> {
     Ok(

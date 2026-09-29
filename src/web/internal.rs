@@ -45,6 +45,8 @@ pub struct InternalState {
     pub(crate) config: Arc<Config>,
     pub(crate) db: Db,
     pub(crate) tokens: Arc<Tokens>,
+    /// The start page's live streams, per person named (B115).
+    streams: crate::live::Streams,
 }
 
 impl InternalState {
@@ -53,6 +55,7 @@ impl InternalState {
             config,
             db,
             tokens: Arc::new(tokens),
+            streams: crate::live::Streams::default(),
         }
     }
 }
@@ -113,7 +116,19 @@ pub fn router(state: InternalState) -> Router {
     if state.tokens.scim.is_some() {
         router = router.merge(crate::web::scim::routes(&state));
     }
-    router.with_state(state)
+    // Every refusal of this door reaches the log (homeserver audit 3, B119).
+    router
+        .layer(axum::middleware::from_fn(crate::web::refusal::log_refusals))
+        .with_state(state)
+}
+
+/// 401 for a wrong or missing token, marked with the door it was tried on.
+pub(crate) fn wrong_token(door: &'static str) -> Response {
+    crate::web::refusal::mark(
+        StatusCode::UNAUTHORIZED.into_response(),
+        crate::web::refusal::Kind::Token,
+        door,
+    )
 }
 
 /// `Authorization: Bearer <token>`, compared in constant time.
@@ -145,7 +160,7 @@ async fn take_event(
         return StatusCode::NOT_FOUND.into_response();
     };
     if !presents(&headers, token) {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return wrong_token("events");
     }
     let Some(events) = state.config.events.as_ref() else {
         // Configured to take events and not told where they go: a mistake of
@@ -182,7 +197,7 @@ async fn bell(State(state): State<InternalState>, headers: HeaderMap) -> Respons
         return StatusCode::NOT_FOUND.into_response();
     };
     if !presents(&headers, token) {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return wrong_token("bell");
     }
     match bell_for(&state, &headers).await {
         Ok(body) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(body)).into_response(),
@@ -194,19 +209,33 @@ async fn bell(State(state): State<InternalState>, headers: HeaderMap) -> Respons
 }
 
 /// The same answer, live, for the start page (`live::bell_stream`). The
-/// person is who the proxy named when the stream was opened.
+/// person is who the proxy named when the stream was opened; the door has no
+/// session to ask again — the proxy's own sign-in in front of it is that.
 async fn bell_stream(State(state): State<InternalState>, headers: HeaderMap) -> Response {
     let Some(token) = state.tokens.bell.as_deref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if !presents(&headers, token) {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return wrong_token("bell");
     }
+    // Counted per name the proxy gives, as the forum counts per subject.
+    let named = headers
+        .get("x-treff-user")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let Some(slot) = state.streams.try_open(&named) else {
+        return crate::web::refusal::mark(
+            (StatusCode::TOO_MANY_REQUESTS, "too many open streams").into_response(),
+            crate::web::refusal::Kind::Streams,
+            "limit",
+        );
+    };
     let db = state.db.clone();
-    let stream = crate::live::bell_stream(&db, move || {
+    let stream = crate::live::bell_stream(&db, slot, move || {
         let state = state.clone();
         let headers = headers.clone();
-        async move { bell_for(&state, &headers).await }
+        async move { bell_for(&state, &headers).await.map(Some) }
     });
     ([(header::CACHE_CONTROL, "no-store")], stream).into_response()
 }
@@ -226,9 +255,22 @@ pub async fn bell_for(
             .unwrap_or_default()
             .to_string()
     };
-    let Some(handle) = crate::auth::checked_handle(&header_text("x-treff-user")) else {
+    let named = header_text("x-treff-user");
+    let Some(handle) = crate::auth::checked_handle(&named) else {
         return Ok(empty);
     };
+    // THE NAME, BYTE FOR BYTE (homeserver audit 3, B116). The handle is a
+    // FOLD of a user name, and the door used to answer to anything that
+    // folded into it: `Konrad` read the bell of `konrad`, who in the identity
+    // provider is somebody else. The header has to be the user name the
+    // directory keeps for the account holding the handle — or, without a
+    // directory entry, the handle itself.
+    let expected = crate::db::accounts::directory_name_of_handle(&state.db, &handle)
+        .await?
+        .unwrap_or_else(|| handle.clone());
+    if named != expected {
+        return Ok(empty);
+    }
     let groups: Vec<String> = header_text("x-treff-groups")
         .split('|')
         .map(str::trim)

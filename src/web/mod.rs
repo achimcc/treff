@@ -3,6 +3,7 @@
 //! later page passes through, and it is the layer that fails closed.
 
 pub mod internal;
+pub mod refusal;
 pub mod scim;
 pub mod views;
 
@@ -72,6 +73,8 @@ pub struct AppState {
     /// Signs unsubscribe links. Its own key, never the cookie key — see
     /// `notify::unsubscribe`.
     pub unsubscribe_key: std::sync::Arc<Vec<u8>>,
+    /// The live streams open right now, per person (B115).
+    streams: crate::live::Streams,
 }
 
 impl FromRef<AppState> for Key {
@@ -126,6 +129,7 @@ impl AppState {
             unsubscribe_key: std::sync::Arc::new(crate::notify::unsubscribe::load_or_create_key(
                 dir,
             )?),
+            streams: crate::live::Streams::default(),
         })
     }
 
@@ -158,9 +162,13 @@ where
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let app = AppState::from_ref(state);
-        space_for(&app, parts)
-            .map(CurrentSpace)
-            .ok_or_else(|| (StatusCode::FORBIDDEN, "unknown host").into_response())
+        space_for(&app, parts).map(CurrentSpace).ok_or_else(|| {
+            refusal::mark(
+                (StatusCode::FORBIDDEN, "unknown host").into_response(),
+                refusal::Kind::Host,
+                "unknown",
+            )
+        })
     }
 }
 
@@ -207,11 +215,19 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
     let (parts, body) = request.into_parts();
 
     if space_for(&app, &parts).is_none() {
-        return (StatusCode::FORBIDDEN, "unknown host").into_response();
+        return refusal::mark(
+            (StatusCode::FORBIDDEN, "unknown host").into_response(),
+            refusal::Kind::Host,
+            "unknown",
+        );
     }
 
     if !same_origin_enough(&parts) {
-        return (StatusCode::FORBIDDEN, "that came from somewhere else").into_response();
+        return refusal::mark(
+            (StatusCode::FORBIDDEN, "that came from somewhere else").into_response(),
+            refusal::Kind::Csrf,
+            fetch_site(&parts),
+        );
     }
 
     // `/u/` is open BY DESIGN: an unsubscribe link that asks for a sign-in is
@@ -220,10 +236,40 @@ async fn require_session(State(app): State<AppState>, request: Request, next: Ne
     let open =
         path.starts_with("/auth/") || path.starts_with("/assets/") || path.starts_with("/u/");
     if !open && identity_from_cookies(&app, &parts).await.is_none() {
-        return login_redirect(&parts);
+        // A first visit carries no cookie and is no refusal. A cookie that
+        // does not decrypt, or decrypts to a session that is over, is one
+        // (homeserver audit 3, B119): the first is somebody making one up,
+        // the second a session that expired, was signed out or whose
+        // account was switched off.
+        let presented = axum_extra::extract::cookie::CookieJar::from_headers(&parts.headers)
+            .get(SESSION_COOKIE)
+            .is_some();
+        let decrypted = PrivateCookieJar::from_headers(&parts.headers, app.cookie_key.clone())
+            .get(SESSION_COOKIE)
+            .is_some();
+        return match (presented, decrypted) {
+            (false, _) => login_redirect(&parts),
+            (true, false) => refusal::mark(
+                login_redirect(&parts),
+                refusal::Kind::Cookie,
+                "undecryptable",
+            ),
+            (true, true) => refusal::mark(login_redirect(&parts), refusal::Kind::Session, "gone"),
+        };
     }
 
     next.run(Request::from_parts(parts, body)).await
+}
+
+/// What `Sec-Fetch-Site` said, as one of four fixed words for the log —
+/// never the header's own text.
+fn fetch_site(parts: &Parts) -> &'static str {
+    match parts.headers.get("sec-fetch-site").map(|v| v.as_bytes()) {
+        Some(b"cross-site") => "cross-site",
+        Some(b"same-site") => "same-site",
+        Some(b"none") => "none",
+        _ => "other",
+    }
 }
 
 /// The second line of defence against CSRF, and the first one that is ours.
@@ -390,11 +436,19 @@ async fn callback(
         // The provider's own words are not repeated back into the page; they
         // are its vocabulary, not ours, and they end up in a log people read.
         eprintln!("treff: the provider refused a sign-in: {error}");
-        return (StatusCode::FORBIDDEN, "the provider refused the sign-in").into_response();
+        return refusal::mark(
+            (StatusCode::FORBIDDEN, "the provider refused the sign-in").into_response(),
+            refusal::Kind::Login,
+            "provider",
+        );
     }
 
     let (Some(code), Some(returned_state)) = (query.code, query.state) else {
-        return (StatusCode::BAD_REQUEST, "not a callback").into_response();
+        return refusal::mark(
+            (StatusCode::BAD_REQUEST, "not a callback").into_response(),
+            refusal::Kind::Login,
+            "malformed",
+        );
     };
 
     // No cookie, nothing to compare `state` against. That is a refusal and not
@@ -404,11 +458,15 @@ async fn callback(
         .get("treff_pending")
         .and_then(|c| parse_pending(c.value()))
     else {
-        return (
-            StatusCode::BAD_REQUEST,
-            "this sign-in was not started here, or it took too long",
-        )
-            .into_response();
+        return refusal::mark(
+            (
+                StatusCode::BAD_REQUEST,
+                "this sign-in was not started here, or it took too long",
+            )
+                .into_response(),
+            refusal::Kind::Login,
+            "not-started",
+        );
     };
 
     let provider = match app.provider().await {
@@ -435,7 +493,11 @@ async fn callback(
         Ok(i) => i,
         Err(e) => {
             tracing_error("a sign-in could not be completed", &e);
-            return (StatusCode::FORBIDDEN, "the sign-in could not be completed").into_response();
+            return refusal::mark(
+                (StatusCode::FORBIDDEN, "the sign-in could not be completed").into_response(),
+                refusal::Kind::Login,
+                "exchange",
+            );
         }
     };
 
@@ -776,27 +838,61 @@ async fn notifications_json(
     }
 }
 
-/// The bell in the header, live (`bell.js`). The person is the one this
-/// stream was opened by; a session that ends while it is open is noticed at
-/// the next reconnect, like everywhere else a page stays open.
+/// The bell in the header, live (`bell.js`).
+///
+/// **The session is asked again at every change** (homeserver audit 3,
+/// B115), not only when the stream opens: a sign-out, an expiry, an account
+/// switched off or a group taken away ends the stream at the next change —
+/// or within `live::RECHECK` without one — instead of feeding it. And one
+/// person holds at most `live::STREAMS_PER_PERSON` of them.
 async fn notifications_stream(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
     CurrentUser(who): CurrentUser,
+    jar: PrivateCookieJar,
 ) -> Response {
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
     }
+    // `CurrentUser` found a session, so the cookie is there; without it
+    // there is nothing to ask again, and that is a refusal, not a guess.
+    let Some(sid) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) else {
+        return forbidden();
+    };
+    let Some(slot) = app.streams.try_open(&who.subject) else {
+        return refusal::mark(
+            (StatusCode::TOO_MANY_REQUESTS, "too many open streams").into_response(),
+            refusal::Kind::Streams,
+            "limit",
+        );
+    };
     let db = app.db.clone();
-    let host = space.host.clone();
-    let subject = who.subject.clone();
-    let spaces = readable_spaces(&app, &who);
-    let stream = crate::live::bell_stream(&app.db, move || {
-        let db = db.clone();
-        let host = host.clone();
-        let subject = subject.clone();
-        let spaces = spaces.clone();
-        async move { crate::live::bell_json(&db, &subject, &spaces, &host, OVERLAY_ENTRIES).await }
+    let stream = crate::live::bell_stream(&db, slot, move || {
+        let app = app.clone();
+        let space = space.clone();
+        let sid = sid.clone();
+        async move {
+            let still = Sessions::load(&app.db, &sid)
+                .await?
+                .filter(|now| crate::authz::may_read(now, &space));
+            let Some(now) = still else {
+                refusal::log(
+                    refusal::Refused {
+                        kind: refusal::Kind::Session,
+                        reason: "stream",
+                    },
+                    None,
+                    "GET",
+                    &space.host,
+                    "/notifications/stream",
+                );
+                return Ok(None);
+            };
+            let spaces = readable_spaces(&app, &now);
+            crate::live::bell_json(&app.db, &now.subject, &spaces, &space.host, OVERLAY_ENTRIES)
+                .await
+                .map(Some)
+        }
     });
     ([(header::CACHE_CONTROL, "no-store")], stream).into_response()
 }
@@ -851,7 +947,11 @@ pub fn session_cookie(session_id: String) -> Cookie<'static> {
 }
 
 fn forbidden() -> Response {
-    (StatusCode::FORBIDDEN, "not for you").into_response()
+    refusal::mark(
+        (StatusCode::FORBIDDEN, "not for you").into_response(),
+        refusal::Kind::Forbidden,
+        "-",
+    )
 }
 
 /// A refusal that says as little as possible: through this address the thing
@@ -1704,6 +1804,8 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             require_session,
         ))
+        // Outside the gate, so the gate's own refusals are logged too.
+        .layer(middleware::from_fn(refusal::log_refusals))
         // The headers are set outermost, so a refusal carries them too.
         .layer(fixed(header::CONTENT_SECURITY_POLICY, CSP))
         .layer(fixed(header::X_CONTENT_TYPE_OPTIONS, "nosniff"))

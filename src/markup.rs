@@ -32,13 +32,26 @@ fn sanitize(raw: &str, mentions: bool) -> String {
         // closed circle is for. The CSP says `img-src 'self'` as well; this is
         // the lock that does not depend on the browser honouring it.
         .attribute_filter(|element, attribute, value| match (element, attribute) {
-            ("img", "src") if !value.starts_with('/') => None,
+            ("img", "src") if !from_this_instance(value) => None,
             _ => Some(value.into()),
         });
     if mentions {
         builder.add_allowed_classes("span", &["mention"]);
     }
     builder.clean(raw).to_string()
+}
+
+/// A path on this instance, as a browser will read it: one slash, then
+/// anything but a second one.
+///
+/// "Starts with `/`" was the first version, and `//host/x` starts with a
+/// slash (homeserver audit 3, B117). A browser reads a backslash as a slash
+/// and drops tabs and line breaks from a URL before it looks at it, so
+/// `/\host`, `\\host` and a slash split by a tab all leave the instance too.
+/// They are removed before the question is asked, not after.
+fn from_this_instance(src: &str) -> bool {
+    let mut chars = src.chars().filter(|c| !matches!(c, '\t' | '\n' | '\r'));
+    chars.next() == Some('/') && !matches!(chars.next(), Some('/' | '\\'))
 }
 
 /// One set of options for both renderings, so that `render_with` cannot
@@ -469,5 +482,44 @@ mod attachment_links {
         // and this is the second lock.
         let html = render("![tracker](https://elsewhere.example/pixel.png)");
         assert!(!html.contains("elsewhere.example"), "got: {html}");
+    }
+
+    /// A PROTOCOL-RELATIVE SOURCE IS SOMEWHERE ELSE TOO (homeserver audit 3,
+    /// B117). `//host/x` starts with a slash, and a browser fetches it from
+    /// `host`; so does `/\host/x`, because a browser reads the backslash as a
+    /// slash, and so does a slash split by a tab or a line break, which the
+    /// URL parser drops. The first check was "starts with `/`" and let all
+    /// of them through.
+    #[test]
+    fn a_protocol_relative_image_does_not_survive() {
+        for markdown in [
+            "![x](//elsewhere.example/pixel.png)",
+            r"![x](/\elsewhere.example/pixel.png)",
+            "![x](<//elsewhere.example/pixel.png>)",
+        ] {
+            // comrak writes the backslash as `%5C`, which is a path here and
+            // harmless; what may not come out is a source that leaves.
+            let html = render(markdown);
+            assert!(
+                !html.contains("src=\"//") && !html.contains("src=\"/\\"),
+                "{markdown}: {html}"
+            );
+        }
+        // Past comrak, straight at the boundary: whatever a later renderer
+        // setting lets through, the sanitizer is the lock.
+        for src in [
+            "//elsewhere.example/p.png",
+            r"/\elsewhere.example/p.png",
+            r"\\elsewhere.example/p.png",
+            "/\t/elsewhere.example/p.png",
+            "/\n/elsewhere.example/p.png",
+            "/\r\\elsewhere.example/p.png",
+        ] {
+            let html = sanitize(&format!("<img src=\"{src}\" alt=\"x\">"), false);
+            assert!(!html.contains("elsewhere.example"), "{src:?}: {html}");
+        }
+        // And this instance's own pictures still come through.
+        let html = sanitize("<img src=\"/a/7\" alt=\"x\">", false);
+        assert!(html.contains("src=\"/a/7\""), "got: {html}");
     }
 }

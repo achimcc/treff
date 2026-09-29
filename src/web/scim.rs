@@ -104,10 +104,14 @@ async fn demand_the_token(
         return StatusCode::NOT_FOUND.into_response();
     };
     if !crate::web::internal::presents(request.headers(), token) {
-        return refusal(
-            StatusCode::UNAUTHORIZED,
-            None,
-            "a bearer token for /scim/v2 is required",
+        return crate::web::refusal::mark(
+            refusal(
+                StatusCode::UNAUTHORIZED,
+                None,
+                "a bearer token for /scim/v2 is required",
+            ),
+            crate::web::refusal::Kind::Token,
+            "scim",
         );
     }
     next.run(request).await

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.11.0 — 2026-09-29
+
+Five findings from the homeserver's third security audit (B115–B119), all
+rated low.
+
+- **A live bell ends with its session** (B115). The person behind a stream
+  was fixed when it opened; after a sign-out, an expiry, a deactivation or a
+  group taken away, an open tab went on receiving titles, names and numbers.
+  Every change now asks for the session first — and a quiet stream asks at
+  least once a minute — and a session that is over ends the stream. One
+  person holds at most eight streams per door (`live::STREAMS_PER_PERSON`);
+  the ninth is answered with 429.
+- **A handle is folded from ASCII only, and the start page's door answers to
+  the name byte for byte** (B116). Unicode lower-casing turned the Kelvin
+  sign into a `k`, so `\u{212A}onrad` became `konrad`; and the door gave
+  `Konrad` the bell of `konrad`. Non-ASCII is now no handle at all, and
+  `X-Treff-User` must equal the directory's user name for the account (or,
+  without one, the handle itself).
+- **A protocol-relative picture is not from this instance** (B117). The
+  sanitizer let `img src` through whenever it began with `/` — including
+  `//host/x`, `/\host/x` and a slash split by a tab. Only a single slash
+  followed by something other than a slash or backslash passes now.
+- **Expired sessions are deleted** (B118), once at start and then hourly, in
+  a loop of their own (the outbox loops only run when mail or a webhook is
+  configured). The first run after the upgrade deletes every session row
+  that has already expired; none of them could be used any more.
+- **Every refusal is one line in the log** (B119), in a fixed format a log
+  query can take apart: `treff: refused kind=… status=… method=… host=…
+  path=… reason=…`. The kinds and their reasons are in the README
+  ("Refusals in the log"). New: `web::refusal`.
+- `live::bell_stream` takes a `live::Slot` and a `compute` that answers
+  `Ok(None)` to end the stream.
+
 ## 0.10.2 — 2026-09-28
 
 - **A session follows the directory.** A session kept the groups of its
