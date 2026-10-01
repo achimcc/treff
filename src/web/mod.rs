@@ -5,6 +5,7 @@
 pub mod internal;
 pub mod refusal;
 pub mod scim;
+pub mod tls;
 pub mod views;
 
 use crate::auth::{OidcSettings, Sessions};

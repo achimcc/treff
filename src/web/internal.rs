@@ -1,5 +1,6 @@
 //! The internal listener: a second door, beside treff's own sign-in, for
-//! other services on the same machine (ADR 0006).
+//! other services on the same machine or next to it (ADR 0006). With a
+//! certificate it speaks TLS and nothing else (`web::tls`).
 //!
 //! Three routes, each behind its own token:
 //!
@@ -60,10 +61,14 @@ impl InternalState {
     }
 }
 
-/// Where the internal listener lives, and what opens each of its routes.
+/// Where the internal listener lives, what opens each of its routes, and
+/// whether it speaks TLS.
 pub struct Settings {
     pub listen: String,
     pub tokens: Tokens,
+    /// With a configuration the listener speaks TLS and nothing else;
+    /// without one it speaks plain HTTP, and says so at startup (`web::tls`).
+    pub tls: Option<Arc<rustls::ServerConfig>>,
 }
 
 /// Where the listener lives and what opens it, from the environment.
@@ -71,7 +76,9 @@ pub struct Settings {
 /// `None` when `TREFF_INTERNAL_LISTEN` is not set. A token file that is set
 /// but cannot be read, or is empty, stops treff — and so does a token file
 /// without a listener: somebody meant to open a door and it would silently
-/// stay shut.
+/// stay shut. The same goes for the two TLS files (`web::tls`): one without
+/// the other, an unreadable one or one that is not PEM stops treff, and so do
+/// TLS files without a listener.
 pub fn from_env() -> anyhow::Result<Option<Settings>> {
     let listen = std::env::var("TREFF_INTERNAL_LISTEN").ok();
     let token = |name: &str| -> anyhow::Result<Option<Vec<u8>>> {
@@ -92,11 +99,23 @@ pub fn from_env() -> anyhow::Result<Option<Settings>> {
         scim: token("TREFF_SCIM_TOKEN_FILE")?,
     };
     let any = tokens.events.is_some() || tokens.bell.is_some() || tokens.scim.is_some();
+    // Read whether or not there is a listener: a certificate that cannot be
+    // used is a mistake either way, and the message for it is the clearer one.
+    let tls = crate::web::tls::from_env()?;
     match listen {
-        Some(listen) => Ok(Some(Settings { listen, tokens })),
+        Some(listen) => Ok(Some(Settings {
+            listen,
+            tokens,
+            tls,
+        })),
         None if any => {
             anyhow::bail!(
                 "a token file for the internal listener is set, TREFF_INTERNAL_LISTEN is not"
+            )
+        }
+        None if tls.is_some() => {
+            anyhow::bail!(
+                "a TLS file for the internal listener is set, TREFF_INTERNAL_LISTEN is not"
             )
         }
         None => Ok(None),
@@ -304,4 +323,45 @@ pub async fn bell_for(
         .map(|e| crate::live::entry_json(e, ""))
         .collect();
     Ok(serde_json::json!({ "unread": unread, "entries": entries }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A certificate without a listener is a door somebody meant to encrypt
+    /// and that does not exist — the same mistake as a token without one.
+    #[test]
+    fn tls_files_without_a_listener_stop_the_start() {
+        let made = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+            .expect("a certificate");
+        let dir = tempfile::tempdir().expect("a directory");
+        let cert = dir.path().join("cert.pem");
+        let key = dir.path().join("key.pem");
+        std::fs::write(&cert, made.cert.pem()).expect("written");
+        std::fs::write(&key, made.signing_key.serialize_pem()).expect("written");
+        let with = |listen: Option<&str>, check: &dyn Fn(anyhow::Result<Option<Settings>>)| {
+            temp_env::with_vars(
+                [
+                    ("TREFF_INTERNAL_LISTEN", listen),
+                    ("TREFF_EVENTS_TOKEN_FILE", None),
+                    ("TREFF_BELL_TOKEN_FILE", None),
+                    ("TREFF_SCIM_TOKEN_FILE", None),
+                    (crate::web::tls::CERT_FILE, cert.to_str()),
+                    (crate::web::tls::KEY_FILE, key.to_str()),
+                ],
+                || check(from_env()),
+            );
+        };
+        with(None, &|settings| {
+            assert_eq!(
+                settings.err().expect("must refuse").to_string(),
+                "a TLS file for the internal listener is set, TREFF_INTERNAL_LISTEN is not"
+            );
+        });
+        with(Some("127.0.0.1:0"), &|settings| {
+            let settings = settings.expect("usable").expect("a listener");
+            assert!(settings.tls.is_some(), "the certificate was not taken");
+        });
+    }
 }

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.12.0 — 2026-10-01
+
+**The internal listener can speak TLS** (homeserver audit 3, B145). It
+carried its bearer tokens, and the people, groups and bell entries behind
+them, in plain HTTP — also where the caller sits on another machine or in
+another network zone.
+
+- Two new settings, both optional and only valid together:
+  `TREFF_INTERNAL_TLS_CERT_FILE` (PEM, the leaf and its chain) and
+  `TREFF_INTERNAL_TLS_KEY_FILE` (PEM); in the NixOS module
+  `services.treff.internal.tlsCertFile` and `tlsKeyFile`. With both, the
+  listener speaks TLS 1.3 or 1.2 and **nothing else** — a plain HTTP request
+  on that port gets no answer from treff.
+- **Without them nothing changes, except that treff says so**: one
+  `treff: WARNING: the internal listener speaks plain HTTP: …` line at every
+  start. Existing installations keep working and get the line.
+- **No quiet fallback.** One file without the other, an unreadable file, a
+  file that is not PEM, a key that does not fit the certificate, or TLS
+  files without `TREFF_INTERNAL_LISTEN` stop treff at startup (the module
+  refuses the first and the last at build time). The message names the
+  variable and the path; nothing from either file is ever printed — the PEM
+  parser's own error quotes the line it stumbled over, so it is not passed
+  on.
+- A connection that does not complete its handshake within ten seconds is
+  dropped, and one that was not TLS is named in the log with its address.
+- Callers have to trust the certificate and find the name or IP address
+  they dial among its subject alternative names (README, "TLS on the
+  internal listener"). No client certificates; the tokens stay.
+- The public listener is unchanged. The refusal lines (`web::refusal`) are
+  written the same over TLS.
+- New: `web::tls`. `rustls` and `tokio-rustls` are now named directly; both
+  were already in the tree through `lettre` and the OIDC client, with `ring`
+  as the only crypto provider, and that stays so. New dev-dependency:
+  `rcgen`, so the tests make their certificate up instead of a key being
+  checked in.
+
 ## 0.11.0 — 2026-09-29
 
 Five findings from the homeserver's third security audit (B115–B119), all

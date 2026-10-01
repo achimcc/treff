@@ -198,14 +198,34 @@ async fn serve() -> anyhow::Result<()> {
             settings.tokens,
         );
         let listener = tokio::net::TcpListener::bind(&settings.listen).await?;
-        eprintln!("treff: the internal listener is on {}", settings.listen);
-        tokio::spawn(async move {
-            if let Err(e) =
-                axum::serve(listener, treff::web::internal::router(internal_state)).await
-            {
-                eprintln!("treff: the internal listener stopped: {e}");
+        let router = treff::web::internal::router(internal_state);
+        // TLS OR PLAIN HTTP, decided here and never per connection
+        // (homeserver audit 3, B145). With a certificate nothing on this
+        // port is answered in the clear; without one the door is what it was
+        // before 0.12.0, and says so.
+        match settings.tls {
+            Some(tls) => {
+                let listener = treff::web::tls::TlsListener::new(listener, tls)?;
+                eprintln!(
+                    "treff: the internal listener is on {}, TLS only",
+                    settings.listen
+                );
+                tokio::spawn(async move {
+                    if let Err(e) = axum::serve(listener, router).await {
+                        eprintln!("treff: the internal listener stopped: {e}");
+                    }
+                });
             }
-        });
+            None => {
+                eprintln!("treff: the internal listener is on {}", settings.listen);
+                eprintln!("{}", treff::web::tls::PLAIN_HTTP_WARNING);
+                tokio::spawn(async move {
+                    if let Err(e) = axum::serve(listener, router).await {
+                        eprintln!("treff: the internal listener stopped: {e}");
+                    }
+                });
+            }
+        }
     }
 
     let app = treff::web::router(state);

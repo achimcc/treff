@@ -1,6 +1,6 @@
 [package]
 name = "treff"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "A small forum for closed groups, authenticated by your own OIDC provider"
@@ -24,19 +24,22 @@ maud = { version = "0.27.0", features = ["axum"] }
 openidconnect = "4.0.1"
 percent-encoding = "2.3.2"
 rand = "0.10.2"
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 thiserror = "2.0.20"
 time = "0.3.55"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring", "tls12"] }
 toml = "1.1.5"
 tower-http = { version = "0.7.1", features = ["set-header"] }
 url = "2.5.8"
 
 [dev-dependencies]
 axum-extra = { version = "0.12.6", features = ["cookie-private"] }
+rcgen = "0.14.10"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite"] }
 temp-env = "0.3.6"
 tempfile = "3.27.0"

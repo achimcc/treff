@@ -56,3 +56,21 @@ anybody's unread entries by naming them. The port is reachable only from the
 proxy's machine (the operator's zone table), and the token lives in the
 proxy's credentials. That is the price of the bell outside treff, paid on
 purpose; `/internal/*` is part of every review from here on.
+
+## Addendum, 2026-10-01 — the door can be encrypted (0.12.0)
+
+"On the same machine" stopped being the whole truth as soon as the first
+caller sat in another network zone: the proxy and the identity provider
+reach this port over a network, and the tokens and the answers crossed it in
+plain HTTP (homeserver audit 3, B145).
+
+The listener now takes a certificate and a key (`TREFF_INTERNAL_TLS_CERT_FILE`,
+`TREFF_INTERNAL_TLS_KEY_FILE`) and then speaks TLS only. The decision above
+is unchanged — one listener, a token per route, nothing public — and so is
+what opens a route: treff asks for no client certificate. TLS keeps the
+token from being read on the way; it does not replace it.
+
+Without the two files the door still opens in plain HTTP, and says so at
+every start. That is a concession to installations that exist, not a second
+recommended mode: with one of the two files set, or with a file that cannot
+be used, treff does not start rather than fall back.

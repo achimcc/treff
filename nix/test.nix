@@ -25,6 +25,17 @@ let
     Dated in the future, so it is a draft.
     EOF
   '';
+
+  # A certificate for the internal listener, made when the test is built —
+  # there is no key in the repository. It names the address the test dials,
+  # because that is what a caller checks.
+  internalTls = pkgs.runCommand "treff-test-internal-tls" { nativeBuildInputs = [ pkgs.openssl ]; } ''
+    mkdir -p $out
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+      -keyout $out/key.pem -out $out/cert.pem -days 3650 \
+      -subj "/CN=treff internal test" \
+      -addext "subjectAltName=IP:127.0.0.1"
+  '';
 in
 pkgs.testers.runNixOSTest {
   name = "treff";
@@ -44,12 +55,16 @@ pkgs.testers.runNixOSTest {
         inherit package;
         listen = "127.0.0.1:8080";
         timezone = "Europe/Berlin";
-        # The second door, with both tokens as credentials (ADR 0006).
+        # The second door, with its tokens as credentials (ADR 0006).
         internal = {
           listen = "127.0.0.1:8081";
           eventsTokenFile = "%d/events";
           bellTokenFile = "%d/bell";
           scimTokenFile = "%d/scim";
+          # And over TLS (audit B145): the certificate from a readable path,
+          # the key as a credential — the unit is a dynamic user.
+          tlsCertFile = "${internalTls}/cert.pem";
+          tlsKeyFile = "%d/internal-tls-key";
         };
         events = {
           space = "forum.example.org";
@@ -110,6 +125,7 @@ pkgs.testers.runNixOSTest {
         "events:/etc/treff-events"
         "bell:/etc/treff-bell"
         "scim:/etc/treff-scim"
+        "internal-tls-key:${internalTls}/key.pem"
       ];
 
       environment.etc."treff-secret".text = "the-client-secret";
@@ -205,11 +221,39 @@ pkgs.testers.runNixOSTest {
     # machine, with the tokens arriving as credentials the way they will in
     # production.
     machine.wait_for_open_port(8081)
+
+    # THE DOOR SPEAKS TLS AND NOTHING ELSE (audit B145). Every call below
+    # goes through a client that trusts exactly the test certificate and
+    # checks the address it dials against it; the same request in plain HTTP
+    # gets no HTTP answer at all.
+    ca = "--cacert ${internalTls}/cert.pem"
+    journal = machine.succeed("journalctl -u treff.service --no-pager")
+    assert "the internal listener is on 127.0.0.1:8081, TLS only" in journal, (
+        f"the internal listener does not say it speaks TLS: {journal}"
+    )
+    assert "WARNING: the internal listener speaks plain HTTP" not in journal, (
+        f"treff warns about plain HTTP although TLS is configured: {journal}"
+    )
+    status, plain = machine.execute(
+        "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/internal/bell"
+    )
+    assert status != 0 and plain.strip() == "000", (
+        f"the TLS port answered plain HTTP: exit {status}, code {plain}"
+    )
+    # Without the trust anchor the client refuses the certificate — so the
+    # 401s below are answers over a connection that was verified.
+    machine.fail("curl -s -o /dev/null https://127.0.0.1:8081/internal/bell")
+    # The key reached the unit as a credential, not as a path in the store.
+    machine.succeed(
+        "systemctl show -p Environment treff.service "
+        "| grep -q 'TREFF_INTERNAL_TLS_KEY_FILE=/run/credentials/treff.service/internal-tls-key'"
+    )
+
     def internal(args):
         return machine.succeed(
-            f"curl -s -o /dev/null -w '%{{http_code}}' {args}"
+            f"curl -s {ca} -o /dev/null -w '%{{http_code}}' {args}"
         )
-    bell = "-H 'X-Treff-User: konrad' -H 'X-Treff-Groups: Household' http://127.0.0.1:8081/internal/bell"
+    bell = "-H 'X-Treff-User: konrad' -H 'X-Treff-Groups: Household' https://127.0.0.1:8081/internal/bell"
     assert internal(bell) == "401", "the bell answered without a token"
     assert internal(f"-H 'Authorization: Bearer the-events-token' {bell}") == "401", (
         "the events token opened the bell"
@@ -218,11 +262,18 @@ pkgs.testers.runNixOSTest {
         "-X POST -H 'Content-Type: application/json' "
         "-H 'Authorization: Bearer the-events-token' "
         "--data '{\"handle\":\"konrad\",\"kind\":\"film_available\",\"title\":\"Dune\",\"source_key\":\"seerr:1\"}' "
-        "http://127.0.0.1:8081/internal/events"
+        "https://127.0.0.1:8081/internal/events"
     )
     assert internal(event) == "201", "an event was not taken"
     assert internal(event) == "200", "the same event was taken twice"
-    answer = machine.succeed(f"curl -s -H 'Authorization: Bearer the-bell-token' {bell}")
+    answer = machine.succeed(f"curl -s {ca} -H 'Authorization: Bearer the-bell-token' {bell}")
+    # The refusals above reached the log through the same middleware as over
+    # plain HTTP (B119).
+    machine.succeed(
+        "journalctl -u treff.service --no-pager "
+        "| grep -q 'treff: refused kind=token status=401 method=GET host=127.0.0.1:8081 "
+        "path=/internal/bell reason=bell'"
+    )
     assert '"unread":1' in answer, f"the bell did not count the event: {answer}"
     # And the public listener has none of it.
     assert code("forum.example.org", "/internal/bell") != "200", "the public side answered /internal"
@@ -230,12 +281,12 @@ pkgs.testers.runNixOSTest {
     # THE SCIM DOOR (ADR 0007). There is no identity provider in this VM, so
     # nobody can sign in — which is exactly the case the stage is about: the
     # person has to be here WITHOUT ever having come.
-    scim = "http://127.0.0.1:8081/scim/v2"
+    scim = "https://127.0.0.1:8081/scim/v2"
     ada = "5b1e0c1c-1111-4a4a-9b9b-000000000001"
     household = "5b1e0c1c-2222-4a4a-9b9b-00000000000a"
     def as_provider(args):
         return machine.succeed(
-            f"curl -s -o /dev/null -w '%{{http_code}}' "
+            f"curl -s {ca} -o /dev/null -w '%{{http_code}}' "
             f"-H 'Authorization: Bearer the-scim-token' "
             f"-H 'Content-Type: application/scim+json' {args}"
         )

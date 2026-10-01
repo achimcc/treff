@@ -268,7 +268,8 @@ in
         default = null;
         example = "10.0.100.10:8081";
         description = ''
-          A second listener for other services on the same machine (ADR 0006):
+          A second listener for other services (ADR 0006), on the same
+          machine or — then with `tlsCertFile` and `tlsKeyFile` — next to it:
           `POST /internal/events` takes an event for a person, `GET
           /internal/bell` and `/internal/bell/stream` answer for a page
           outside treff. **Never put this behind a public virtual host** —
@@ -310,6 +311,42 @@ in
           provider's side has to set `externalId` to the user's UUID — treff
           refuses anything else, because that equality is what makes the
           person pushed in and the person who signs in one account.
+        '';
+      };
+      tlsCertFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/etc/treff/internal-cert.pem";
+        description = ''
+          A **path** to the certificate the internal listener presents, as
+          PEM — the leaf first, then its chain. Together with `tlsKeyFile`
+          the listener speaks TLS (1.2 and up) and **only** TLS; a plain HTTP
+          request on that port gets no answer.
+
+          Both or neither. With neither, the listener speaks plain HTTP as it
+          did before 0.12.0 and treff says so in one `WARNING` line at
+          startup — tokens and people's data then cross the network readable,
+          which is only acceptable on loopback. One without the other, a file
+          that cannot be read or is not PEM stops treff at startup; it never
+          falls back to plain HTTP.
+
+          treff asks its callers for no certificate; the bearer tokens stay
+          what opens a route. The callers have to trust this one: it must
+          chain to a CA they know (or be given to them as the trust anchor,
+          if it is self-signed) and name, as a subject alternative name, the
+          host name or IP address they dial.
+        '';
+      };
+      tlsKeyFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "%d/internal-tls-key";
+        description = ''
+          A **path** to the private key for `tlsCertFile`, as PEM (PKCS#8,
+          PKCS#1 or SEC1) — never the key itself. A string, so `%d` works
+          with `LoadCredential`, which is the form to use: the unit runs as a
+          dynamic user and can read no file that is rightly kept from
+          everybody else.
         '';
       };
     };
@@ -464,6 +501,17 @@ in
         message = "services.treff.internal has a token file but no `listen`.";
       }
       {
+        # One of the two is somebody who meant the door to be encrypted.
+        # treff refuses to start that way rather than fall back to plain
+        # HTTP; the build refuses first.
+        assertion = (cfg.internal.tlsCertFile == null) == (cfg.internal.tlsKeyFile == null);
+        message = "services.treff.internal needs `tlsCertFile` and `tlsKeyFile` together, or neither.";
+      }
+      {
+        assertion = cfg.internal.listen != null || cfg.internal.tlsCertFile == null;
+        message = "services.treff.internal has TLS files but no `listen`.";
+      }
+      {
         assertion = cfg.events == null || lib.any (s: s.host == cfg.events.space) cfg.spaces;
         message = "services.treff.events.space is not one of services.treff.spaces.";
       }
@@ -505,6 +553,13 @@ in
       }
       // lib.optionalAttrs (cfg.internal.scimTokenFile != null) {
         TREFF_SCIM_TOKEN_FILE = cfg.internal.scimTokenFile;
+      }
+      // lib.optionalAttrs (cfg.internal.tlsCertFile != null) {
+        TREFF_INTERNAL_TLS_CERT_FILE = cfg.internal.tlsCertFile;
+      }
+      // lib.optionalAttrs (cfg.internal.tlsKeyFile != null) {
+        # The PATH to the key, like every other secret here.
+        TREFF_INTERNAL_TLS_KEY_FILE = cfg.internal.tlsKeyFile;
       }
       // lib.optionalAttrs (cfg.webhook.url != null) {
         TREFF_WEBHOOK_URL = cfg.webhook.url;

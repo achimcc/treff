@@ -119,7 +119,9 @@ escalation by typo.
 | `TREFF_WEBHOOK_URL` | a second exit; one POST per post, JSON |
 | `TREFF_WEBHOOK_TOPIC` | put in the body as `topic` (ntfy wants it there) |
 | `TREFF_WEBHOOK_TOKEN_FILE` | a **path** to a bearer token, never the token |
-| `TREFF_INTERNAL_LISTEN` | the second door, for services on the same machine (ADR 0006). **Never behind a public virtual host** |
+| `TREFF_INTERNAL_LISTEN` | the second door, for other services (ADR 0006). **Never behind a public virtual host** |
+| `TREFF_INTERNAL_TLS_CERT_FILE` | a **path** to the certificate the second door presents (PEM, leaf first, then its chain); only together with the key |
+| `TREFF_INTERNAL_TLS_KEY_FILE` | a **path** to its private key (PEM); with both set the second door speaks **only** TLS |
 | `TREFF_EVENTS_TOKEN_FILE` | a **path**; opens `POST /internal/events` |
 | `TREFF_BELL_TOKEN_FILE` | a **path**; opens `GET /internal/bell` and its stream |
 | `TREFF_SCIM_TOKEN_FILE` | a **path**; opens `/scim/v2`, where the provider pushes people and groups in (ADR 0007) |
@@ -134,6 +136,61 @@ The bell's `X-Treff-User` must be the person's user name **byte for byte** —
 the one the directory (SCIM) holds for the account, or, without a directory
 entry, the handle itself. A name that merely folds into a handle (`Konrad`
 for `konrad`) gets an empty bell, like a stranger.
+
+### TLS on the internal listener
+
+The internal listener carries bearer tokens, and behind them people, groups
+and the entries of somebody's bell. As soon as a caller is not on the same
+machine, that is traffic on a network, and it wants TLS:
+
+```sh
+TREFF_INTERNAL_TLS_CERT_FILE=/etc/treff/internal-cert.pem   # PEM: the leaf, then its chain
+TREFF_INTERNAL_TLS_KEY_FILE=/run/credentials/treff.service/internal-tls-key   # PEM: PKCS#8, PKCS#1 or SEC1
+```
+
+In the NixOS module these are `services.treff.internal.tlsCertFile` and
+`tlsKeyFile`; hand the key over with `LoadCredential` and name it as
+`"%d/<name>"`, since the unit runs as a dynamic user.
+
+- **Both set:** the listener speaks TLS 1.3 or 1.2 and nothing else. A plain
+  HTTP request on that port gets no HTTP answer; treff closes the connection
+  and writes `treff: the internal listener dropped a connection from <address>
+  before TLS was established: …`, which is where a caller that was not
+  switched over shows up. At startup it says `treff: the internal listener is
+  on <address>, TLS only`.
+- **Neither set:** plain HTTP, as before 0.12.0 — and one line at startup,
+  every time:
+
+  ```text
+  treff: WARNING: the internal listener speaks plain HTTP: its tokens and its answers are readable on the wire. Set TREFF_INTERNAL_TLS_CERT_FILE and TREFF_INTERNAL_TLS_KEY_FILE.
+  ```
+
+  That is acceptable on loopback and nowhere else.
+- **One without the other, a file that cannot be read, a file that is not
+  PEM, or a key that does not belong to the certificate:** treff does not
+  start. It never falls back to plain HTTP. The message names the variable
+  and the path and nothing from the file — the key cannot end up in a log.
+
+**What a caller needs.** treff presents the certificate and checks nothing
+about it; the checking is the caller's, and it is the usual one:
+
+- the certificate has to chain to a CA the caller trusts — or, if it is
+  self-signed, be given to the caller as its trust anchor (`curl --cacert`,
+  a CA bundle in the proxy, the certificate the identity provider is told to
+  verify against);
+- it has to carry the name the caller dials as a **subject alternative
+  name**: a DNS name for `https://treff.internal:8081`, an **IP** entry for
+  `https://10.0.100.10:8081`. The common name counts for nothing, and a
+  caller that dials an address the certificate does not name is right to
+  refuse — do not teach it to skip the check;
+- TLS 1.2 or newer. treff asks for no client certificate; the bearer token
+  stays what opens a route.
+
+A changed certificate is read at the next start, not while treff runs.
+
+The refusals of this door (`treff: refused kind=token …`, below) are written
+the same over TLS as over plain HTTP. The public listener is not affected:
+it stays plain HTTP behind your reverse proxy.
 
 There is no redirect-URI setting. Each space is sent back to
 `https://<its host>/auth/callback`, so **register one redirect URI per space**
