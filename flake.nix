@@ -78,6 +78,16 @@
               --ignore RUSTSEC-2023-0071 --file ${./Cargo.lock}
             touch $out
           '';
+          # Bans, sources and licenses of the dependency tree (deny.toml).
+          # Inside the package's build environment: the vendored crates are
+          # what `cargo metadata` reads there, so nothing is fetched.
+          deny = self.packages.${pkgs.system}.default.overrideAttrs (old: {
+            pname = "treff-deny";
+            nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.cargo-deny ];
+            buildPhase = "cargo deny --offline check bans sources licenses";
+            doCheck = false;
+            installPhase = "touch $out";
+          });
         }
         # The VM test needs a machine of the same architecture to boot, so it
         # is only offered where that is the case.

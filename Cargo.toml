@@ -45,3 +45,7 @@ temp-env = "0.3.6"
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
 wiremock = "0.6.5"
+
+[lints.rust]
+# No `unsafe` anywhere in this crate, and no `#[allow]` can bring it back.
+unsafe_code = "forbid"
