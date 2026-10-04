@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1 — 2026-10-04
+
+Baseline hardening from the homeserver's security audit 3 (B149), no change in behaviour: `unsafe` code denied crate-wide, flake checks `audit` (cargo-audit against a pinned advisory database) and `deny` (cargo-deny: bans, sources, licenses), `SECURITY.md`, Renovate.
+
 ## 0.12.0 — 2026-10-01
 
 **The internal listener can speak TLS** (homeserver audit 3, B145). It
