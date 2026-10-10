@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.13.0 — 2026-10-10
+
+**"Mark all as read" in the bell's overlay.** With many new entries the only
+way to quiet the bell from the overlay was to open each one; the button
+existed, but only on the page `/notifications`.
+
+- `bell.js` puts the button above the list while something is unread. It
+  posts to the address in the bell's new `data-read` attribute and then asks
+  for the bell again; without the attribute (or without the word
+  `data-t-mark-all-read`) there is no button. If the request fails, the
+  browser goes to the page behind the bell, which has the same button as a
+  form.
+- `POST /notifications/read` answers `Accept: application/json` with 204
+  instead of the redirect to the page.
+- **The internal door writes one thing now**: `POST /internal/bell/read`,
+  behind the bell token, marks the entries of the person named in
+  `X-Treff-User` as read — for the start page, where the bell stands outside
+  treff (ADR 0006, addendum). A request whose `Sec-Fetch-Site` is not
+  `same-origin` is refused with 403; everybody the door does not know gets
+  204 and nothing is marked. A proxy in front has to pass `POST` on this one
+  path only, to signed-in people, and should refuse foreign
+  `Sec-Fetch-Site` itself.
+
 ## 0.12.1 — 2026-10-04
 
 Baseline hardening from the homeserver's security audit 3 (B149), no change in behaviour: `unsafe` code denied crate-wide, flake checks `audit` (cargo-audit against a pinned advisory database) and `deny` (cargo-deny: bans, sources, licenses), `SECURITY.md`, Renovate.

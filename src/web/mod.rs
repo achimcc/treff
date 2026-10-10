@@ -917,16 +917,25 @@ async fn open_event(
     }
 }
 
+/// "Mark all as read": the form on `/notifications`, and the button in the
+/// overlay. With `Accept: application/json` (`bell.js`) the answer is 204 —
+/// the script wants no page, and the stream brings the new number.
 async fn read_all(
     State(app): State<AppState>,
     CurrentSpace(space): CurrentSpace,
     CurrentUser(who): CurrentUser,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     if !crate::authz::may_read(&who, &space) {
         return forbidden();
     }
+    let wants_json = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("application/json"));
     match crate::db::inbox::mark_all_read(&app.db, &who.subject, &readable_spaces(&app, &who)).await
     {
+        Ok(()) if wants_json => StatusCode::NO_CONTENT.into_response(),
         Ok(()) => Redirect::to("/notifications").into_response(),
         Err(e) => server_error("cannot mark notifications read", &e),
     }

@@ -116,6 +116,8 @@ pub fn layout_with_search(
                             a class="bell" href="/notifications"
                               data-stream="/notifications/stream"
                               data-json="/notifications.json"
+                              data-read="/notifications/read"
+                              data-t-mark-all-read=(lang.t("mark_all_read"))
                               data-t-title=(lang.t("notifications"))
                               data-t-all=(lang.t("all_notifications"))
                               data-t-nothing=(lang.t("nothing_new_short"))

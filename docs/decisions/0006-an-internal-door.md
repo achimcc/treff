@@ -57,6 +57,28 @@ proxy's machine (the operator's zone table), and the token lives in the
 proxy's credentials. That is the price of the bell outside treff, paid on
 purpose; `/internal/*` is part of every review from here on.
 
+## Addendum, 2026-10-10 — the bell's door marks read (0.13.0)
+
+"It only reads" above is overturned in one point. The overlay on the start
+page got the button "mark all as read", and a button on a page outside treff
+has only this door to go through: `POST /internal/bell/read`, behind the
+bell token, for the person in `X-Treff-User`, resolved exactly as for
+reading (the name byte for byte, the groups' spaces).
+
+What it can do is deliberately the least that serves the button: set
+`read_at` on that person's entries. It takes no body, names no entry, and
+answers 204 whether or not it knew the person. Nothing is created, changed
+or deleted, and who exists is still written only by SCIM under its own
+token.
+
+**The price.** Whoever reaches the port and holds the bell token could
+already read anybody's unread entries; now they can also silence anybody's
+bell. And unlike the two reading routes, a browser stands behind this one,
+so a foreign page could try to post through the proxy with the person's
+sign-in: the route refuses any `Sec-Fetch-Site` other than `same-origin`
+(the rule of the public router), and the proxy in front is expected to do
+the same and to pass `POST` on this path only.
+
 ## Addendum, 2026-10-01 — the door can be encrypted (0.12.0)
 
 "On the same machine" stopped being the whole truth as soon as the first

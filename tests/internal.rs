@@ -501,3 +501,188 @@ async fn the_public_router_has_no_internal_routes() {
         .expect("r");
     assert_ne!(r.status(), StatusCode::OK);
 }
+
+fn read_all(token: &str, user: &str, groups: &str) -> axum::http::request::Builder {
+    Request::builder()
+        .method("POST")
+        .uri("/internal/bell/read")
+        .header("authorization", format!("Bearer {token}"))
+        .header("x-treff-user", user)
+        .header("x-treff-groups", groups)
+}
+
+async fn unread_of(app: &axum::Router, user: &str) -> serde_json::Value {
+    json(
+        app.clone()
+            .oneshot(bell(BELL, user, "Household"))
+            .await
+            .expect("r"),
+    )
+    .await["unread"]
+        .clone()
+}
+
+/// Two people with something unread each: a film for konrad, who has an
+/// account and a reply waiting as well, and a film for ada, who has none.
+async fn two_ringing_bells(dir: &std::path::Path, db: &treff::db::Db) -> axum::Router {
+    let app = internal(db, Some(EVENTS), Some(BELL));
+    signed_in(db, dir, "konrad", &["Household"]).await;
+    let konrad = treff::authz::Identity {
+        subject: "konrad".into(),
+        name: "konrad".into(),
+        groups: vec!["Household".into()],
+        email: None,
+        handle: Some("konrad".into()),
+    };
+    let ben = treff::authz::Identity {
+        subject: "ben".into(),
+        name: "Ben".into(),
+        groups: vec!["Household".into()],
+        email: None,
+        handle: Some("ben".into()),
+    };
+    let topic = treff::db::topics::create_topic(db, FORUM, "general", "T", "B", &konrad)
+        .await
+        .expect("topic");
+    treff::db::topics::add_reply(db, topic, "me", &ben)
+        .await
+        .expect("reply");
+    for body in [DUNE.to_string(), DUNE.replace("konrad", "ada")] {
+        let r = app
+            .clone()
+            .oneshot(post_event(
+                EVENTS,
+                &body.replace("seerr:1", &body.len().to_string()),
+            ))
+            .await
+            .expect("event");
+        assert_eq!(r.status(), StatusCode::CREATED);
+    }
+    assert_eq!(unread_of(&app, "konrad").await, 2);
+    assert_eq!(unread_of(&app, "ada").await, 1);
+    app
+}
+
+/// "MARK ALL AS READ" ON THE START PAGE (0.13.0): the one thing the bell's
+/// door writes. It empties the bell of the person the proxy named — with an
+/// account or without — and nobody else's.
+#[tokio::test]
+async fn reading_through_the_door_empties_that_persons_bell_only() {
+    let (dir, db, _app) = setup_with_db().await;
+    let app = two_ringing_bells(dir.path(), &db).await;
+    let r = app
+        .clone()
+        .oneshot(
+            read_all(BELL, "konrad", "Household")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("r");
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    assert_eq!(unread_of(&app, "konrad").await, 0);
+    assert_eq!(unread_of(&app, "ada").await, 1, "ada's is ada's");
+
+    // Somebody without an account has only events, and those go too.
+    let r = app
+        .clone()
+        .oneshot(
+            read_all(BELL, "ada", "Household")
+                .header("sec-fetch-site", "same-origin")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("r");
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    assert_eq!(unread_of(&app, "ada").await, 0);
+}
+
+/// What the door refuses changes nothing: a wrong token, the other route's
+/// token, a GET, and a request a browser says another site made — the proxy
+/// passes the browser's `Sec-Fetch-Site` through, and a page elsewhere must
+/// not be able to empty a bell by posting a form at the start page.
+#[tokio::test]
+async fn reading_through_the_door_is_refused_without_changing_anything() {
+    let (dir, db, _app) = setup_with_db().await;
+    let app = two_ringing_bells(dir.path(), &db).await;
+    for token in ["wrong", EVENTS, ""] {
+        let r = app
+            .clone()
+            .oneshot(
+                read_all(token, "konrad", "Household")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("r");
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "{token:?}");
+    }
+    for site in ["cross-site", "same-site", "none"] {
+        let r = app
+            .clone()
+            .oneshot(
+                read_all(BELL, "konrad", "Household")
+                    .header("sec-fetch-site", site)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("r");
+        assert_eq!(r.status(), StatusCode::FORBIDDEN, "{site}");
+    }
+    let get = read_all(BELL, "konrad", "Household")
+        .method("GET")
+        .body(Body::empty())
+        .expect("request");
+    assert_eq!(
+        app.clone().oneshot(get).await.expect("r").status(),
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+    assert_eq!(unread_of(&app, "konrad").await, 2);
+}
+
+/// The same single answer as the bell itself for everybody the door does not
+/// know — and nothing is marked: a name that only folds into the handle
+/// (B116), and groups that may read no space.
+#[tokio::test]
+async fn reading_through_the_door_as_nobody_marks_nothing() {
+    let (dir, db, _app) = setup_with_db().await;
+    let app = two_ringing_bells(dir.path(), &db).await;
+    for (user, groups) in [("Konrad", "Household"), ("konrad", "Strangers"), ("", "")] {
+        let r = app
+            .clone()
+            .oneshot(
+                read_all(BELL, user, groups)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("r");
+        assert_eq!(r.status(), StatusCode::NO_CONTENT, "{user:?} {groups:?}");
+    }
+    assert_eq!(unread_of(&app, "konrad").await, 2);
+}
+
+#[tokio::test]
+async fn reading_through_the_door_needs_the_bell_token_to_exist() {
+    let (_dir, db, public) = setup_with_db().await;
+    let app = internal(&db, Some(EVENTS), None);
+    let request = || {
+        read_all(BELL, "konrad", "Household")
+            .header("host", FORUM)
+            .body(Body::empty())
+            .expect("request")
+    };
+    assert_eq!(
+        app.oneshot(request()).await.expect("r").status(),
+        StatusCode::NOT_FOUND
+    );
+    // And the public router does not have the route at all.
+    let r = public.oneshot(request()).await.expect("r");
+    assert!(
+        !r.status().is_success(),
+        "the public router answered {}",
+        r.status()
+    );
+}

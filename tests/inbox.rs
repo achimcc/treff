@@ -209,6 +209,28 @@ async fn mark_all_as_read_empties_the_bell() {
     );
 }
 
+/// The same button in the overlay (`bell.js`, 0.13.0) asks with `fetch`: it
+/// wants no page back, only to know that it was done.
+#[tokio::test]
+async fn mark_all_as_read_answers_a_script_without_a_page() {
+    let (dir, db, app) = setup_with_db().await;
+    let ada = signed_in(&db, dir.path(), "ada", &["Household"]).await;
+    let t = treff::db::topics::create_topic(&db, FORUM, "general", "T", "B", &person("ada"))
+        .await
+        .expect("topic");
+    treff::db::topics::add_reply(&db, t, "one", &person("ben"))
+        .await
+        .expect("reply");
+    let mut request = post(FORUM, "/notifications/read", &ada, "");
+    request.headers_mut().insert(
+        "accept",
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(badge(&page(&app, FORUM, "/", &ada).await), None);
+}
+
 /// ONE BELL EVERYWHERE (0.10.0). What happened on the blog is counted on the
 /// forum too, and its link carries the blog's host; on the blog itself the
 /// same entry links relatively.
@@ -357,6 +379,8 @@ async fn the_bell_carries_its_stream_and_its_words() {
         r#"data-json="/notifications.json""#,
         r#"data-t-all="Alle Benachrichtigungen""#,
         r#"data-t-mentioned-you-in="hat dich erwaehnt in""#,
+        r#"data-read="/notifications/read""#,
+        r#"data-t-mark-all-read="Alle als gelesen markieren""#,
     ] {
         assert!(bell.contains(needle), "{needle} in {bell}");
     }

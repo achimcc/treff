@@ -123,7 +123,7 @@ escalation by typo.
 | `TREFF_INTERNAL_TLS_CERT_FILE` | a **path** to the certificate the second door presents (PEM, leaf first, then its chain); only together with the key |
 | `TREFF_INTERNAL_TLS_KEY_FILE` | a **path** to its private key (PEM); with both set the second door speaks **only** TLS |
 | `TREFF_EVENTS_TOKEN_FILE` | a **path**; opens `POST /internal/events` |
-| `TREFF_BELL_TOKEN_FILE` | a **path**; opens `GET /internal/bell` and its stream |
+| `TREFF_BELL_TOKEN_FILE` | a **path**; opens `GET /internal/bell`, its stream, and `POST /internal/bell/read` ("mark all as read", the one thing it writes) |
 | `TREFF_SCIM_TOKEN_FILE` | a **path**; opens `/scim/v2`, where the provider pushes people and groups in (ADR 0007) |
 
 A route whose token is unset **does not exist** — never "open, because nothing

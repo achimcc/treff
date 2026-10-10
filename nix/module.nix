@@ -292,7 +292,8 @@ in
         default = null;
         example = "%d/bell";
         description = ''
-          A **path** to the bearer token for `/internal/bell` and its stream —
+          A **path** to the bearer token for `/internal/bell`, its stream and
+          `POST /internal/bell/read` ("mark all as read") —
           a different token from the one for events, so a leak of one does
           not open the other. Unset, the routes do not exist.
         '';

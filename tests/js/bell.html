@@ -10,12 +10,20 @@
   };
   window.EventSource.prototype.addEventListener = function (name, f) { this.listeners[name] = f; };
   function push(data) { sources[0].listeners.bell({ data: JSON.stringify(data) }); }
-  window.fetch = function () { return Promise.reject(new Error("the stream is enough here")); };
+  // What the script asked for, and what the server would say: the bell is
+  // only fetched after "mark all as read", so it comes back empty.
+  var asked = [];
+  window.fetch = function (url, options) {
+    asked.push((options && options.method || "GET") + " " + url);
+    if (options && options.method === "POST") return Promise.resolve({ ok: true });
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ unread: 0, entries: [] }); } });
+  };
 </script>
 <script src="/src/web/bell.js"></script>
 </head><body>
 <header><nav>
-  <a class="bell" href="/notifications" data-stream="/notifications/stream" data-json="/notifications.json"
+  <a class="bell" href="/notifications" data-stream="/notifications/stream" data-json="/notifications.json" data-read="/notifications/read"
+     data-t-mark-all-read="Alle als gelesen markieren"
      data-t-title="Benachrichtigungen" data-t-all="Alle Benachrichtigungen" data-t-nothing="Nichts Neues."
      data-t-new-reply-in="neue Antwort in" data-t-new-replies-in="neue Antworten in"
      data-t-reply-in="Antwort in" data-t-replies-in="Antworten in" data-t-latest-from="zuletzt von"
@@ -44,6 +52,7 @@
     r.click_opens = !panel().hidden;
     r.expanded = bell.getAttribute("aria-expanded");
     r.empty_says_so = items();
+    r.no_read_button_at_zero = panel().querySelector(".bell-read").hidden;
     r.all_leads_to_the_page = panel().querySelector(".bell-all").getAttribute("href");
     push({ unread: 5, entries: [
       { kind: "replies", title: "Holiday", count: 2, author: "Ben", at: 1700000000, unread: true, link: "/t/1#p5" },
@@ -55,6 +64,9 @@
     ] });
     r.badge_follows_the_stream = bell.querySelector(".unread").textContent;
     r.entries = items();
+    var read = panel().querySelector(".bell-read");
+    r.read_button_when_unread = read.hidden ? null : read.textContent;
+    r.read_button_is_not_a_submit = read.type;
     click(document.getElementById("elsewhere")); await tick();
     r.click_outside_closes = panel().hidden;
     click(bell); await tick();
@@ -64,6 +76,17 @@
     r.ctrl_click_is_left_to_the_browser = panel().hidden;
     push({ unread: 0, entries: [] });
     r.badge_goes_at_zero = bell.querySelector(".unread") === null;
+    // "Mark all as read": one POST where the page said, then the bell is
+    // asked again and shows what the server now says.
+    push({ unread: 2, entries: [
+      { kind: "mention", title: "Film night", author: "Ada", at: 1700000000, unread: true, link: "/t/2#p9" }
+    ] });
+    asked = [];
+    click(bell); await tick();
+    click(read); await tick();
+    r.read_all_asks = asked;
+    r.read_all_empties = [bell.querySelector(".unread") === null, read.hidden, items()];
+    r.read_all_keeps_the_panel_open = !panel().hidden;
     document.getElementById("out").textContent = JSON.stringify(r);
   })();
 </script>

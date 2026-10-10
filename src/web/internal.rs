@@ -2,7 +2,7 @@
 //! other services on the same machine or next to it (ADR 0006). With a
 //! certificate it speaks TLS and nothing else (`web::tls`).
 //!
-//! Three routes, each behind its own token:
+//! Three kinds of route, each behind its own token:
 //!
 //! * `POST /internal/events` — an event for a person, from a service that
 //!   knows about it (the first: a film request that became available or
@@ -11,6 +11,10 @@
 //!   (the start page). The person is named by the proxy in front, from the
 //!   identity provider's answer: `X-Treff-User` (a handle) and
 //!   `X-Treff-Groups` (`|`-separated, as Authentik writes them).
+//! * `POST /internal/bell/read` — "mark all as read" for that same person
+//!   (0.13.0). The one thing the bell's token writes: `read_at`, nothing
+//!   else, and only for a request the browser says came from the page
+//!   itself (`Sec-Fetch-Site`).
 //! * `/scim/v2/…` — the identity provider pushing its people and groups in
 //!   (`web::scim`, ADR 0007). The only one of the three that WRITES who
 //!   exists, which is why it has a token of its own rather than the bell's.
@@ -130,6 +134,7 @@ pub fn router(state: InternalState) -> Router {
     if state.tokens.bell.is_some() {
         router = router
             .route("/internal/bell", get(bell))
+            .route("/internal/bell/read", post(read_bell))
             .route("/internal/bell/stream", get(bell_stream));
     }
     if state.tokens.scim.is_some() {
@@ -266,7 +271,70 @@ pub async fn bell_for(
     state: &InternalState,
     headers: &HeaderMap,
 ) -> anyhow::Result<serde_json::Value> {
-    let empty = serde_json::json!({ "unread": 0, "entries": [] });
+    let Some((handle, spaces)) = named(state, headers).await? else {
+        return Ok(serde_json::json!({ "unread": 0, "entries": [] }));
+    };
+    let (unread, entries) =
+        crate::db::inbox::for_handle(&state.db, &handle, &spaces, BELL_ENTRIES).await?;
+    let entries: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| crate::live::entry_json(e, ""))
+        .collect();
+    Ok(serde_json::json!({ "unread": unread, "entries": entries }))
+}
+
+/// "Mark all as read" from the start page (0.13.0) — the one thing this
+/// door's bell writes, and it writes nothing but `read_at` on the entries of
+/// the person the proxy named (ADR 0006, addendum of 2026-10-10).
+///
+/// **A browser stands behind this request**, unlike behind the other two:
+/// the proxy lets a signed-in person's POST through and adds the token. So
+/// the rule of the public router applies here as well (`same_origin_enough`)
+/// — a `Sec-Fetch-Site` that is not `same-origin` is another site borrowing
+/// that person's sign-in at the proxy, and is refused. The proxy is asked to
+/// refuse it too; this is the line that holds when its rule is lost.
+///
+/// 204 for everybody the door does not know, as the bell is empty for them.
+async fn read_bell(State(state): State<InternalState>, headers: HeaderMap) -> Response {
+    let Some(token) = state.tokens.bell.as_deref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !presents(&headers, token) {
+        return wrong_token("bell");
+    }
+    if headers
+        .get("sec-fetch-site")
+        .is_some_and(|site| site.as_bytes() != b"same-origin")
+    {
+        return crate::web::refusal::mark(
+            (StatusCode::FORBIDDEN, "not from another site").into_response(),
+            crate::web::refusal::Kind::Csrf,
+            "bell",
+        );
+    }
+    let marked = async {
+        if let Some((handle, spaces)) = named(&state, &headers).await? {
+            crate::db::inbox::mark_all_read_for_handle(&state.db, &handle, &spaces).await?;
+        }
+        anyhow::Ok(())
+    };
+    match marked.await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            eprintln!("treff: cannot mark a bell read: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// Who the proxy named, as a handle, and the spaces whose entries are theirs
+/// to see — or `None` for everybody the door does not answer to: a header
+/// that is no handle, a name that only folds into one, groups that may read
+/// no space.
+async fn named(
+    state: &InternalState,
+    headers: &HeaderMap,
+) -> anyhow::Result<Option<(String, Vec<String>)>> {
     let header_text = |name: &str| {
         headers
             .get(name)
@@ -276,7 +344,7 @@ pub async fn bell_for(
     };
     let named = header_text("x-treff-user");
     let Some(handle) = crate::auth::checked_handle(&named) else {
-        return Ok(empty);
+        return Ok(None);
     };
     // THE NAME, BYTE FOR BYTE (homeserver audit 3, B116). The handle is a
     // FOLD of a user name, and the door used to answer to anything that
@@ -288,7 +356,7 @@ pub async fn bell_for(
         .await?
         .unwrap_or_else(|| handle.clone());
     if named != expected {
-        return Ok(empty);
+        return Ok(None);
     }
     let groups: Vec<String> = header_text("x-treff-groups")
         .split('|')
@@ -313,16 +381,7 @@ pub async fn bell_for(
         .filter(|s| crate::authz::may_read(&who, s))
         .map(|s| s.host.clone())
         .collect();
-    if spaces.is_empty() {
-        return Ok(empty);
-    }
-    let (unread, entries) =
-        crate::db::inbox::for_handle(&state.db, &handle, &spaces, BELL_ENTRIES).await?;
-    let entries: Vec<serde_json::Value> = entries
-        .iter()
-        .map(|e| crate::live::entry_json(e, ""))
-        .collect();
-    Ok(serde_json::json!({ "unread": unread, "entries": entries }))
+    Ok((!spaces.is_empty()).then_some((handle, spaces)))
 }
 
 #[cfg(test)]

@@ -437,6 +437,30 @@ pub async fn mark_all_read(db: &Db, subject: &str, spaces: &[String]) -> anyhow:
     Ok(())
 }
 
+/// The same, for a HANDLE — the button on the start page (`for_handle` is
+/// its reading half). With an account behind the handle it is exactly what
+/// the button in treff does; without one there are only events to mark.
+pub async fn mark_all_read_for_handle(
+    db: &Db,
+    handle: &str,
+    spaces: &[String],
+) -> anyhow::Result<()> {
+    if let Some(subject) = crate::db::accounts::subject_of_handle(db, handle).await? {
+        return mark_all_read(db, &subject, spaces).await;
+    }
+    sqlx::query(
+        "UPDATE events SET read_at = ?
+          WHERE handle = ? AND space IN (SELECT value FROM json_each(?)) AND read_at IS NULL",
+    )
+    .bind(crate::db::topics::now())
+    .bind(handle)
+    .bind(json_list(spaces)?)
+    .execute(db.pool())
+    .await?;
+    db.changed(crate::db::EVERY_SPACE);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

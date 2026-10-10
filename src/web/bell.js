@@ -4,10 +4,12 @@
 // Without this file the bell is a link to the list, and the number is what
 // it was when the page was made. With it, a click opens the list in place;
 // a click on an entry goes to it, and "all notifications" goes to the page.
+// "Mark all as read" stands above the list while something is unread.
 //
 // Everything it needs is on the bell itself: `data-stream` (Server-Sent
-// Events), `data-json` (the same, once), `href` (the page), and its words as
-// `data-t-*` in the page's language. That is why the start page can use this
+// Events), `data-json` (the same, once), `data-read` (where "mark all as
+// read" is posted; without it there is no such button), `href` (the page),
+// and its words as `data-t-*` in the page's language. That is why the start page can use this
 // same file.
 //
 // No library, no inline code, no `innerHTML`: every title and name reaches
@@ -48,6 +50,18 @@
   all.className = "bell-all";
   all.href = bell.href;
   all.textContent = t("all");
+  // "Mark all as read": a button, because it changes something. Only where
+  // the page says where to post it, and only shown while something is unread.
+  var readUrl = bell.getAttribute("data-read");
+  var read = null;
+  if (readUrl && t("mark-all-read") && window.fetch) {
+    read = document.createElement("button");
+    read.type = "button";
+    read.className = "bell-read";
+    read.textContent = t("mark-all-read");
+    read.hidden = true;
+    panel.appendChild(read);
+  }
   panel.appendChild(list);
   panel.appendChild(all);
   host.appendChild(panel);
@@ -133,6 +147,7 @@
       bell.setAttribute("aria-label", t("title"));
       bell.classList.remove("ringing");
     }
+    if (read) read.hidden = !(data.unread > 0);
     while (list.firstChild) list.removeChild(list.firstChild);
     var shown = 0;
     (data.entries || []).forEach(function (entry) {
@@ -165,6 +180,26 @@
   function close() {
     panel.hidden = true;
     bell.setAttribute("aria-expanded", "false");
+  }
+
+  if (read) {
+    read.addEventListener("click", function () {
+      read.disabled = true;
+      fetch(readUrl, { method: "POST", credentials: "same-origin", headers: { Accept: "application/json" } })
+        .then(function (r) {
+          if (!r.ok) throw new Error("not ok");
+          // The stream brings the new bell as well; asking once does not
+          // wait for it, and covers a browser without `EventSource`.
+          load();
+          read.disabled = false;
+        })
+        .catch(function () {
+          // Nothing was marked — refused, signed out, offline. The page
+          // behind the bell has the same button as a form and can say why.
+          read.disabled = false;
+          window.location.assign(bell.href);
+        });
+    });
   }
 
   bell.addEventListener("click", function (event) {
