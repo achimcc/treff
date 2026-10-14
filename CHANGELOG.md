@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.1 — 2026-10-14
+
+Dependency updates only, no change in behaviour. Four rustls advisories
+(RUSTSEC-2026-0346 to 0349, rustls 0.23.46), six quinn-proto advisories
+(RUSTSEC-2026-0338 to 0343, quinn-proto 0.11.19; quinn is only compiled in
+through reqwest and never used — no HTTP/3 here) and two ammonia advisories
+(RUSTSEC-2021-0157 and 0158, ammonia 4.2.3; both concern `style` attributes
+and SVG animation tags, which the default allowlist treff uses never let
+through). Found by the homeserver's daily `cargo audit bin` over the deployed
+binaries; the pinned advisory database moves to 2026-10-14.
+
 ## 0.13.0 — 2026-10-10
 
 **"Mark all as read" in the bell's overlay.** With many new entries the only
