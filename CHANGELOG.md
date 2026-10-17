@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.2 — 2026-10-17
+
+Dependency update only, no change in behaviour. One ammonia advisory
+(RUSTSEC-2026-0373, ammonia 4.2.4): a quoted CSS `URL("")` escaped the URL
+scheme filter because only lowercase `url("")` was matched. It needs style
+sanitizing (`filter_style_properties`) and an allowed `style` attribute;
+treff's allowlist permits neither, so nothing was reachable. Found by the
+homeserver's daily `cargo audit bin`; the pinned advisory database moves to
+2026-10-17.
+
 ## 0.13.1 — 2026-10-14
 
 Dependency updates only, no change in behaviour. Four rustls advisories
